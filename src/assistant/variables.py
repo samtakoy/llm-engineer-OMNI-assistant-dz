@@ -37,6 +37,15 @@ YC_MODEL = os.getenv("YC_MODEL", "yandexgpt-lite")
 LLM_TEMPERATURE = os.getenv("LLM_TEMPERATURE", "")
 LLM_SEED = os.getenv("LLM_SEED", "")
 
+# --- Веб-слой ------------------------------------------------------------
+# Строка User-Agent для запросов к сайтам. Wikimedia и часть других площадок
+# отвечают 403 на agent без контакта: в скобках должен стоять адрес проекта
+# или почта, по которым владельца бота можно найти.
+WEB_USER_AGENT = os.getenv(
+    "WEB_USER_AGENT",
+    "omni-assistant/0.1 (+https://github.com/samtakoy)",
+)
+
 # Отладочный режим: включить размышление в фазе поиска и показать его текст.
 # Дороже примерно вчетверо по времени, поэтому по умолчанию выключен.
 SHOW_REASONING = os.getenv("SHOW_REASONING", "").strip().lower() in ("1", "true", "yes")

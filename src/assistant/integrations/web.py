@@ -21,9 +21,10 @@ from urllib.parse import urlparse
 import httpx
 import trafilatura
 
+from assistant.variables import WEB_USER_AGENT
+
 _TIMEOUT_SECONDS = 10.0
 _MAX_BYTES = 2_000_000
-_USER_AGENT = "smm-department-bot/0.1 (+learning project)"
 
 # Текст, которым ddgs сообщает о пустой выдаче, а не об отказе движка.
 _EMPTY_RESULTS_MESSAGE = "No results found."
@@ -309,7 +310,7 @@ def fetch_page(url: str, max_characters: int) -> PageOutcome:
         with httpx.Client(
             timeout = _TIMEOUT_SECONDS,
             follow_redirects = True,
-            headers = {"User-Agent": _USER_AGENT},
+            headers = {"User-Agent": WEB_USER_AGENT},
         ) as client:
             with client.stream("GET", url) as response:
                 response.raise_for_status()
