@@ -135,10 +135,14 @@ def build_provider_config(provider: str) -> ProviderConfig:
     raise RuntimeError(f"Неизвестный провайдер {provider!r}. Ожидается одно из {PROVIDER_NAMES}")
 
 
+# Бюджет размышления в отладочном режиме, см. docs/SO_with_reasoning.md.
+DEBUG_REASONING_EFFORT = "low"
+
+
 @lru_cache(maxsize = 8)
 def build_llm(
     role: NodeRole,
-    show_reasoning: bool,
+    is_debug_reasoning_on: bool,
     provider: str = LLM_PROVIDER,
 ) -> ChatOpenAI:
     """
@@ -149,9 +153,8 @@ def build_llm(
 
     Аргументы:
         role: характер работы узла, по нему берётся перекрытие из реестра ролей.
-        show_reasoning: запросить текст размышления. Отладочный режим: он уводит
-            запрос на responses api и несовместим со схемой - под ним
-            with_structured_output отдаёт прозу вместо json.
+        is_debug_reasoning_on: запросить текст размышления. Отладочный режим,
+            он накладывает ограничения на схему: docs/SO_with_reasoning.md.
         provider: провайдер, по умолчанию из окружения.
 
     Возвращает:
@@ -162,17 +165,15 @@ def build_llm(
 
     settings: dict[str, Any] = profile.standard()
 
-    if show_reasoning:
-        # Параметр reasoning уводит запрос на responses api, и только там
-        # langchain возвращает блок с текстом рассуждений. Обычный
-        # reasoning_effort здесь лишний - он бы гасил то, что мы просим показать.
+    if is_debug_reasoning_on:
         settings["reasoning"] = {
-            "effort": profile.reasoning_effort or "low",
+            "effort": DEBUG_REASONING_EFFORT,
             "summary": "detailed",
         }
+        # Если есть reasoning = {"effort": "low"} → уходит на Responses API (устройство langchain).
+        # Оба параметра принадлежат /v1/chat/completions. На /v1/responses их нет
+        # Будет TypeError: Responses.create() got an unexpected keyword argument 'reasoning_effort'
         settings.pop("reasoning_effort", None)
-        # Responses.create() - типизированный метод, presence_penalty он не знает
-        # и падает с TypeError.
         settings.pop("presence_penalty", None)
 
     # Переменная окружения перебивает и профиль, и роль: она для замеров, когда
@@ -196,7 +197,7 @@ def build_llm(
 
 
 # Поля клиента, которые уезжают в тело запроса. Список берём из профиля.
-# Поле reasoning профилю не принадлежит - его добавляет режим show_reasoning.
+# Поле reasoning профилю не принадлежит - его добавляет отладочный режим.
 _DESCRIBED_FIELDS = standard_field_names() + ("reasoning",)
 
 

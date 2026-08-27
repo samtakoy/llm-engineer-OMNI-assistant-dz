@@ -278,6 +278,30 @@ def overlay_for(role: NodeRole) -> RoleOverlay:
     return ROLE_OVERLAYS[role]
 
 
+# Знаки, которыми серверы разбивают имя модели на части. Одна модель у lm studio
+# зовётся google/gemma-4-26b-a4b-qat, у ollama - gemma4:26b-a4b-it-q4_K_M.
+# Совпадают они только после удаления этих знаков.
+NAME_SEPARATORS = ("/", ":", "_", ".", "-", " ")
+
+
+def normalize_model_name(model: str) -> str:
+    """
+    Приводит имя модели к виду, пригодному для поиска по реестру профилей.
+
+    Аргументы:
+        model: имя модели как его знает сервер.
+
+    Возвращает:
+        Имя в нижнем регистре без разделителей.
+    """
+    name = model.lower()
+
+    for separator in NAME_SEPARATORS:
+        name = name.replace(separator, "")
+
+    return name
+
+
 def profile_for(model: str) -> SamplingProfile:
     """
     Подбирает профиль по имени модели.
@@ -288,8 +312,8 @@ def profile_for(model: str) -> SamplingProfile:
     Возвращает:
         Профиль из реестра либо нейтральный.
     """
-    key = model.lower()
-    matches = [name for name in PROFILES if name in key]
+    key = normalize_model_name(model = model)
+    matches = [name for name in PROFILES if normalize_model_name(model = name) in key]
     if not matches:
         return DEFAULT_PROFILE
     return PROFILES[max(matches, key = len)]

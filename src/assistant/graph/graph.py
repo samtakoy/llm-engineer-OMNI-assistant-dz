@@ -80,7 +80,7 @@ def _build_agent_llm() -> ChatOpenAI:
     Возвращает:
         Клиент модели.
     """
-    return build_llm(role = NodeRole.TOOL_CALLING, show_reasoning = SHOW_REASONING)
+    return build_llm(role = NodeRole.TOOL_CALLING, is_debug_reasoning_on = SHOW_REASONING)
 
 
 def _build_collect_llm() -> ChatOpenAI:
@@ -93,7 +93,7 @@ def _build_collect_llm() -> ChatOpenAI:
     Возвращает:
         Клиент модели.
     """
-    return build_llm(role = NodeRole.EXTRACTION, show_reasoning = False)
+    return build_llm(role = NodeRole.EXTRACTION, is_debug_reasoning_on = False)
 
 
 def _build_compose_llm() -> ChatOpenAI:
@@ -103,7 +103,7 @@ def _build_compose_llm() -> ChatOpenAI:
     Возвращает:
         Клиент модели.
     """
-    return build_llm(role = NodeRole.WRITING, show_reasoning = False)
+    return build_llm(role = NodeRole.WRITING, is_debug_reasoning_on = False)
 
 
 def describe_nodes() -> list[str]:
@@ -299,10 +299,11 @@ def _agent_node(state: ResearchState) -> dict:
         available_tools = available_tools,
     )
 
+    # Шаблон модели принимает system только первым сообщением, поэтому заметка
+    # о бюджете дописывается в тот же system, а не идёт отдельным сообщением.
     message = llm.invoke(
         [
-            SystemMessage(content = RESEARCHER_SYSTEM_PROMPT),
-            SystemMessage(content = budget_note),
+            SystemMessage(content = f"{RESEARCHER_SYSTEM_PROMPT}\n\n{budget_note}"),
             *state["messages"],
         ]
     )
