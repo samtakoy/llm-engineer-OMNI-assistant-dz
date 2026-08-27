@@ -1,23 +1,9 @@
 """
-Параметры сэмплирования по моделям и по характеру работы узла.
-
-Слоя два. Профиль модели отвечает на вопрос «что любит эта модель»: каждая
-хочет своих настроек, и выставлять их руками в ui сервера - способ однажды
-забыть и получить необъяснимо плохой прогон. Перекрытие роли отвечает на вопрос
-«что делает этот узел»: вызов инструмента и длинный художественный текст живут
-на разных настройках одной и той же модели.
-
-Накладываются они в build_llm: профиль модели, поверх него перекрытие роли,
-поверх - разовые перекрытия окружения. Параметры уезжают в теле запроса и
-перекрывают настройки сервера, поэтому этот модуль и есть источник истины.
-
-Часть параметров вне стандарта OpenAI: temperature, top_p и presence_penalty -
-обычные поля запроса, а top_k, min_p и repeat_penalty уходят в extra_body как
-расширение lm studio. Провайдер, который их не знает, обычно молча игнорирует;
-если начнёт отвечать 400, extra_body для него надо очистить.
+Параметры сэмплирования: профиль модели, поверх него перекрытие роли узла.
+Накладываются в build_llm и уезжают в теле запроса, перекрывая настройки сервера.
 """
 
-from dataclasses import dataclass, replace
+from dataclasses import dataclass, field, fields, replace
 from enum import Enum
 
 
@@ -25,8 +11,10 @@ class NodeRole(Enum):
     """
     Характер работы узла графа.
 
-    Роль названа по работе, а не по имени узла: следующий узел с длинным
-    текстом переиспользует WRITING, не заводя себе отдельной записи.
+    Атрибуты:
+        TOOL_CALLING: вызов инструментов.
+        EXTRACTION: извлечение структуры.
+        WRITING: длинный текст.
     """
 
     TOOL_CALLING = "tool_calling"
@@ -34,13 +22,32 @@ class NodeRole(Enum):
     WRITING = "writing"
 
 
+class BodySection(Enum):
+    """
+    Секция тела запроса, куда уезжает параметр.
+
+    Атрибуты:
+        STANDARD: обычные поля запроса.
+        EXTRA: поля extra_body.
+    """
+
+    STANDARD = "standard"
+    EXTRA = "extra"
+
+
 class Keep:
     """
     Маркер: поле роли не перекрывает профиль модели.
-
-    Нужен отдельно от None, потому что None у параметров сэмплирования уже
-    занят и означает «не отправлять параметр в запросе».
     """
+
+    def __repr__(self) -> str:
+        """
+        Возвращает имя маркера.
+
+        Возвращает:
+            Строку KEEP.
+        """
+        return "KEEP"
 
 
 KEEP = Keep()
@@ -51,8 +58,9 @@ class RoleOverlay:
     """
     Перекрытие профиля модели под характер работы узла.
 
-    Поля повторяют SamplingProfile. Значение KEEP оставляет значение профиля
-    модели, None убирает параметр из запроса, число подставляет своё.
+    Имена полей совпадают с именами полей SamplingProfile. KEEP оставляет
+    значение профиля модели, None убирает параметр из запроса, число
+    подставляет своё.
 
     Атрибуты:
         temperature: температура.
@@ -71,25 +79,6 @@ class RoleOverlay:
     reasoning_effort: str | None | Keep = KEEP
     max_tokens: int | None | Keep = KEEP
     note: str = ""
-
-    def overrides(self) -> dict[str, object]:
-        """
-        Возвращает перекрываемые поля вместе с маркерами KEEP.
-
-        Разбирает их вызывающая сторона: здесь неизвестно, что стоит в профиле
-        модели.
-
-        Возвращает:
-            Словарь: имя поля профиля - значение перекрытия либо KEEP.
-        """
-        return {
-            "temperature": self.temperature,
-            "top_p": self.top_p,
-            "presence_penalty": self.presence_penalty,
-            "repeat_penalty": self.repeat_penalty,
-            "reasoning_effort": self.reasoning_effort,
-            "max_tokens": self.max_tokens,
-        }
 
 
 @dataclass(frozen = True)
@@ -110,16 +99,42 @@ class SamplingProfile:
         note: откуда взяты значения.
     """
 
-    temperature: float | None = None
-    top_p: float | None = None
-    top_k: int | None = None
-    min_p: float | None = None
-    presence_penalty: float | None = None
-    repeat_penalty: float | None = None
-    reasoning_effort: str | None = None
-    stop: tuple[str, ...] | None = None
-    max_tokens: int | None = None
+    temperature: float | None = field(default = None, metadata = {"body": BodySection.STANDARD})
+    top_p: float | None = field(default = None, metadata = {"body": BodySection.STANDARD})
+    top_k: int | None = field(default = None, metadata = {"body": BodySection.EXTRA})
+    min_p: float | None = field(default = None, metadata = {"body": BodySection.EXTRA})
+    presence_penalty: float | None = field(default = None, metadata = {"body": BodySection.STANDARD})
+    repeat_penalty: float | None = field(default = None, metadata = {"body": BodySection.EXTRA})
+    reasoning_effort: str | None = field(default = None, metadata = {"body": BodySection.STANDARD})
+    stop: tuple[str, ...] | None = field(default = None, metadata = {"body": BodySection.STANDARD})
+    max_tokens: int | None = field(default = None, metadata = {"body": BodySection.STANDARD})
     note: str = ""
+
+    def _body(self, section: BodySection) -> dict[str, object]:
+        """
+        Собирает поля одной секции тела запроса.
+
+        Секция поля задана его разметкой. Поле без разметки в тело не попадает.
+
+        Аргументы:
+            section: секция тела запроса.
+
+        Возвращает:
+            Словарь параметров секции без None.
+        """
+        collected: dict[str, object] = {}
+
+        for item in fields(self):
+            if item.metadata.get("body") != section:
+                continue
+
+            value = getattr(self, item.name)
+            if value is None:
+                continue
+
+            collected[item.name] = list(value) if isinstance(value, tuple) else value
+
+        return collected
 
     def standard(self) -> dict[str, object]:
         """
@@ -128,15 +143,7 @@ class SamplingProfile:
         Возвращает:
             Словарь параметров запроса без None.
         """
-        pairs: dict[str, object] = {
-            "temperature": self.temperature,
-            "top_p": self.top_p,
-            "presence_penalty": self.presence_penalty,
-            "stop": list(self.stop) if self.stop else None,
-            "reasoning_effort": self.reasoning_effort,
-            "max_tokens": self.max_tokens,
-        }
-        return {key: value for key, value in pairs.items() if value is not None}
+        return self._body(section = BodySection.STANDARD)
 
     def with_overlay(self, overlay: "RoleOverlay") -> "SamplingProfile":
         """
@@ -149,10 +156,15 @@ class SamplingProfile:
             Новый профиль: поля со значением KEEP взяты из профиля модели,
             остальные - из перекрытия.
         """
-        overridden = {
-            name: getattr(self, name) if isinstance(value, Keep) else value
-            for name, value in overlay.overrides().items()
-        }
+        overridden: dict[str, object] = {}
+
+        for item in fields(self):
+            if not item.metadata.get("body"):
+                continue
+
+            value = getattr(overlay, item.name, KEEP)
+            if not isinstance(value, Keep):
+                overridden[item.name] = value
 
         notes = [note for note in (self.note, overlay.note) if note]
         return replace(self, **overridden, note = "; ".join(notes))
@@ -161,21 +173,32 @@ class SamplingProfile:
         """
         Возвращает параметры, живущие в extra_body.
 
-        Здесь только то, чего нет в схеме openai: расширения llama.cpp, которые
-        клиент иначе не пропустит.
-
         Возвращает:
             Словарь расширенных параметров без None.
         """
-        pairs = {
-            "top_k": self.top_k,
-            "min_p": self.min_p,
-            "repeat_penalty": self.repeat_penalty,
-        }
-        return {key: value for key, value in pairs.items() if value is not None}
+        return self._body(section = BodySection.EXTRA)
 
 
-# Ключ - подстрока имени модели, поиск по самому длинному совпадению.
+def _check_overlay_fields() -> None:
+    """
+    Проверяет, что каждое поле RoleOverlay имеет пару в SamplingProfile.
+
+    Возвращает:
+        Ничего. Поднимает RuntimeError, если пара не найдена.
+    """
+    profile_names = {item.name for item in fields(SamplingProfile)}
+    unknown = sorted(item.name for item in fields(RoleOverlay) if item.name not in profile_names)
+
+    if unknown:
+        raise RuntimeError(
+            f"Поля RoleOverlay без пары в SamplingProfile: {', '.join(unknown)}. "
+            "Перекрытие такого поля потерялось бы молча."
+        )
+
+
+_check_overlay_fields()
+
+
 PROFILES: dict[str, SamplingProfile] = {
     "gemma-4-26b-a4b": SamplingProfile(
         temperature = 1.0,
@@ -193,42 +216,19 @@ PROFILES: dict[str, SamplingProfile] = {
         note = "model.yaml lmstudio-community; стоп-слова обязательны",
     ),
     "qwen3.6-35b-a3b": SamplingProfile(
-        temperature = 1.0,
-        top_p = 0.95,
+        temperature = 0.7,
+        top_p = 0.80,
         top_k = 20,
         min_p = 0.0,
         presence_penalty = 1.5,
         repeat_penalty = 1.0,
         reasoning_effort = "none",
-        note = "рекомендованные параметры qwen; размышление выключено по умолчанию",
+        note = "instruct-набор карточки qwen: профиль выключает размышление",
     ),
 }
 
-# Почему у qwen размышление выключено в профиле.
-#
-# Под грамматикой (структурированный вывод) оно ломает разбор: ответ целиком
-# остаётся в reasoning_content, а content приходит пустым. Гасит это только
-# значение "none" - low и minimal размышление лишь укорачивают.
-#
-# Без грамматики размышление работает и в content попадает нормальный ответ, но
-# бюджет по умолчанию у qwen не ограничен: на вызовах инструментов модель уходит
-# в рассуждение на десятки тысяч токенов и не останавливается. Поэтому роль
-# TOOL_CALLING перекрывает профиль значением "low" и ставит потолок длины.
-#
-# Оговорка про presence_penalty = 1.5: значение агрессивное, его назначение -
-# гасить повторы в длинных рассуждениях. На выводе оно толкает модель прочь от
-# нужных слов, поэтому роли EXTRACTION и WRITING его снимают.
-
-# Стоп-слова glm задаём руками: сборка объявляет три токена остановки
-# (<|endoftext|>, <|user|>, <|observation|>), а tokenizer_config знает про один.
-# Lm studio берёт второй файл, поэтому без stop в теле генерация не
-# останавливается и теги попадают в текст. Настройки stop strings в ui на
-# api-запросы не распространяются.
-
 DEFAULT_PROFILE = SamplingProfile(temperature = 0.0, note = "нейтральный профиль")
 
-# Перекрытия по характеру работы узла. Роль объявляет только то, что меняет:
-# остальные поля остаются такими, какими их задал профиль модели.
 ROLE_OVERLAYS: dict[NodeRole, RoleOverlay] = {
     NodeRole.TOOL_CALLING: RoleOverlay(
         reasoning_effort = "low",
@@ -250,27 +250,19 @@ ROLE_OVERLAYS: dict[NodeRole, RoleOverlay] = {
     ),
 }
 
-# Почему WRITING гасит presence_penalty.
-#
-# Штраф действует на каждый уже встретившийся токен. В длинном тексте под него
-# попадают русские служебные слова, и модель ищет им замену - ближайшей
-# оказывается словоформа соседнего славянского языка: то же значение, другой
-# токен, штраф обнулён. Дальше срабатывает самоподкрепление, и текст целиком
-# уезжает с языка.
-#
-# Повторы в длинном тексте гасить всё же надо, поэтому вместо presence_penalty
-# роль ставит мягкий repeat_penalty: он работает по токенам, а не по присутствию
-# темы, и не толкает модель прочь от нужных слов.
-#
-# Размышление выключено вынужденно: узел работает под грамматикой, а под ней
-# ответ наружу не выходит - весь вывод остаётся в reasoning_content, content
-# приходит пустым, и разбор структуры падает. Значения low и minimal не
-# помогают, гасит только "none". Как получить размышление вместе со схемой -
-# в docs/SO_with_reasoning.md.
 
-# Потолок длины ответа стоит только у TOOL_CALLING: вызов инструмента короткий,
-# финальная реплика тоже, а без потолка ушедшая в рассуждение модель крутится до
-# упора. Узлам вывода потолок не нужен - там длину задаёт запрос.
+def standard_field_names() -> tuple[str, ...]:
+    """
+    Возвращает имена полей, уезжающих в тело запроса обычными параметрами.
+
+    Возвращает:
+        Имена полей в порядке объявления.
+    """
+    return tuple(
+        item.name
+        for item in fields(SamplingProfile)
+        if item.metadata.get("body") is BodySection.STANDARD
+    )
 
 
 def overlay_for(role: NodeRole) -> RoleOverlay:
@@ -300,5 +292,4 @@ def profile_for(model: str) -> SamplingProfile:
     matches = [name for name in PROFILES if name in key]
     if not matches:
         return DEFAULT_PROFILE
-    # Самое длинное совпадение точнее: «gemma-4-12b» не должен цеплять «gemma-4».
     return PROFILES[max(matches, key = len)]

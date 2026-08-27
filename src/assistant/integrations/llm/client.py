@@ -21,7 +21,12 @@ from typing import Any
 from langchain_openai import ChatOpenAI
 from pydantic import SecretStr
 
-from assistant.integrations.llm.profiles import NodeRole, overlay_for, profile_for
+from assistant.integrations.llm.profiles import (
+    NodeRole,
+    overlay_for,
+    profile_for,
+    standard_field_names,
+)
 from assistant.variables import (
     LLM_PROVIDER,
     LLM_SEED,
@@ -190,16 +195,9 @@ def build_llm(
     )
 
 
-# Поля клиента, которые уезжают в тело запроса. Порядок задаёт вид строки лога.
-_DESCRIBED_FIELDS = (
-    "temperature",
-    "top_p",
-    "presence_penalty",
-    "max_tokens",
-    "stop",
-    "reasoning_effort",
-    "reasoning",
-)
+# Поля клиента, которые уезжают в тело запроса. Список берём из профиля.
+# Поле reasoning профилю не принадлежит - его добавляет режим show_reasoning.
+_DESCRIBED_FIELDS = standard_field_names() + ("reasoning",)
 
 
 def describe_llm(llm: ChatOpenAI) -> str:
