@@ -52,16 +52,18 @@ class ResearchState(TypedDict):
     """
     Состояние прогона.
 
+    Отдельных счётчиков вызовов тут нет намеренно: бюджет инструментов
+    считается из messages, где каждый вызов уже записан вместе с его исходом.
+    Второй источник истины разошёлся бы с историей при любой правке графа.
+
     Поля:
         question: исходный вопрос пользователя.
         messages: история диалога с моделью, включая вызовы инструментов.
-        search_rounds: сколько раундов с вызовом инструментов уже сделано.
         notes: фактическая опора, появляется на узле collect.
         answer: итоговый текст, появляется на узле compose.
     """
 
     question: str
     messages: Annotated[list[AnyMessage], add_messages]
-    search_rounds: int
     notes: ResearchNotes | None
     answer: Answer | None
