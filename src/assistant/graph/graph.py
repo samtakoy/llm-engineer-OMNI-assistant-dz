@@ -46,6 +46,7 @@ from assistant.graph.tools import (
     RESEARCH_TOOLS,
 )
 from assistant.integrations.llm.client import build_llm, describe_llm, reasoning_text
+from assistant.integrations.llm.profiles import NodeRole
 from assistant.variables import SHOW_REASONING
 
 # Сколько состоявшихся вызовов разрешено каждому инструменту. Лимит один на
@@ -64,57 +65,45 @@ _TOOL_EXECUTOR = ToolNode(RESEARCH_TOOLS)
 # Потолок вызовов за прогон, из него считается запас по рекурсии.
 _MAX_TOOL_CALLS = MAX_SUCCESSFUL_CALLS_PER_TOOL * len(RESEARCH_TOOLS) + MAX_FAILED_CALLS
 
-# Температура не задаётся: её берём из профиля модели, он тут источник истины.
-_TEMPERATURE_FROM_PROFILE = None
-
-# Бюджет размышления узла agent. Значение low обязательно: у qwen бюджет по
-# умолчанию не ограничен, и на вызовах инструментов модель уходит в рассуждение
-# на десятки тысяч токенов и не останавливается.
-#
-# Само размышление включается переменной окружения SHOW_REASONING. Без неё
-# профиль гасит его совсем: платить временем за то, чего не видно, незачем.
-_AGENT_REASONING_EFFORT = "low"
-
-# Узлы вывода работают под грамматикой, а под ней размышление оставляет content
-# пустым. Гасит это только "none", low и minimal не помогают.
-_OUTPUT_REASONING_EFFORT = "none"
-
-# Потолок ответа узла agent: вызов инструмента короткий, финальная реплика тоже.
-# Страховка на случай, если модель всё-таки зациклится.
-_AGENT_MAX_TOKENS = 9000
+# Параметры сэмплирования здесь не задаются: узел объявляет свою роль, а какими
+# настройками она делается, знает реестр ролей в модуле profiles. Иначе правка
+# одного параметра растекается по графу.
 
 
 def _build_agent_llm() -> ChatOpenAI:
     """
     Собирает клиент узла agent.
 
+    Размышление показывается по переменной окружения SHOW_REASONING: без неё
+    платить временем за то, чего не видно, незачем.
+
     Возвращает:
         Клиент модели.
     """
-    return build_llm(
-        temperature = _TEMPERATURE_FROM_PROFILE,
-        reasoning_effort = _AGENT_REASONING_EFFORT,
-        max_tokens = _AGENT_MAX_TOKENS,
-        show_reasoning = SHOW_REASONING,
-    )
+    return build_llm(role = NodeRole.TOOL_CALLING, show_reasoning = SHOW_REASONING)
 
 
-def _build_output_llm() -> ChatOpenAI:
+def _build_collect_llm() -> ChatOpenAI:
     """
-    Собирает клиент узлов вывода без схемы.
+    Собирает клиент узла collect без схемы.
 
-    Схема навешивается в самих узлах: описанию в логе она не нужна, а клиент
+    Схема навешивается в самом узле: описанию в логе она не нужна, а клиент
     после with_structured_output перестаёт быть ChatOpenAI.
 
     Возвращает:
         Клиент модели.
     """
-    return build_llm(
-        temperature = _TEMPERATURE_FROM_PROFILE,
-        reasoning_effort = _OUTPUT_REASONING_EFFORT,
-        max_tokens = None,
-        show_reasoning = False,
-    )
+    return build_llm(role = NodeRole.EXTRACTION, show_reasoning = False)
+
+
+def _build_compose_llm() -> ChatOpenAI:
+    """
+    Собирает клиент узла compose без схемы.
+
+    Возвращает:
+        Клиент модели.
+    """
+    return build_llm(role = NodeRole.WRITING, show_reasoning = False)
 
 
 def describe_nodes() -> list[str]:
@@ -125,8 +114,9 @@ def describe_nodes() -> list[str]:
         Список строк для вывода в командной строке.
     """
     return [
-        f"agent:            {describe_llm(llm = _build_agent_llm())}",
-        f"collect, compose: {describe_llm(llm = _build_output_llm())}",
+        f"agent:   {describe_llm(llm = _build_agent_llm())}",
+        f"collect: {describe_llm(llm = _build_collect_llm())}",
+        f"compose: {describe_llm(llm = _build_compose_llm())}",
     ]
 
 
@@ -405,7 +395,7 @@ def _collect_node(state: ResearchState) -> dict:
     Возвращает:
         Обновление состояния с полем notes.
     """
-    llm = _build_output_llm().with_structured_output(ResearchNotes, method = "json_schema")
+    llm = _build_collect_llm().with_structured_output(ResearchNotes, method = "json_schema")
 
     notes = llm.invoke(
         [
@@ -435,7 +425,7 @@ def _compose_node(state: ResearchState) -> dict:
     notes = state["notes"]
     facts = "\n".join(f"- {fact}" for fact in notes.facts)
 
-    llm = _build_output_llm().with_structured_output(Answer, method = "json_schema")
+    llm = _build_compose_llm().with_structured_output(Answer, method = "json_schema")
 
     answer = llm.invoke(
         [
@@ -444,7 +434,9 @@ def _compose_node(state: ResearchState) -> dict:
                 content = (
                     f"Запрос пользователя:\n{state['question']}\n\n"
                     f"Сводка найденного:\n{notes.summary}\n\n"
-                    f"Собранные факты:\n{facts}"
+                    f"Собранные факты:\n{facts}\n\n"
+                    "Весь текст ответа - заголовки, вступление, разделы и "
+                    "завершение - пиши на русском языке."
                 )
             ),
         ]

@@ -29,8 +29,10 @@ class ResearchNotes(BaseModel):
 class Section(BaseModel):
     """Один раздел итогового текста."""
 
-    title: str = Field(description = "Заголовок раздела")
-    content: str = Field(description = "Текст раздела в запрошенном пользователем стиле")
+    title: str = Field(description = "Заголовок раздела на русском языке")
+    content: str = Field(
+        description = "Текст раздела на русском языке, в запрошенном пользователем стиле"
+    )
 
 
 class Answer(BaseModel):
@@ -42,10 +44,10 @@ class Answer(BaseModel):
     запрос, а не код.
     """
 
-    title: str = Field(description = "Заголовок всего текста")
-    intro: str = Field(description = "Вступление")
+    title: str = Field(description = "Заголовок всего текста на русском языке")
+    intro: str = Field(description = "Вступление на русском языке")
     sections: list[Section] = Field(description = "Разделы по порядку изложения")
-    closing: str = Field(description = "Завершение")
+    closing: str = Field(description = "Завершение на русском языке")
 
 
 class ResearchState(TypedDict):

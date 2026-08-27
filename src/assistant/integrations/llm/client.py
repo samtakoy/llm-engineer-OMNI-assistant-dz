@@ -8,6 +8,10 @@ openai-совместимый интерфейс. Переезд на облак
 Параметры сэмплирования берутся из соседнего модуля profiles и уезжают в теле
 запроса, перекрывая настройки сервера. Так забыть выставить их в ui lm studio
 становится нечем.
+
+Узел графа задаёт не параметры, а свою роль: чем занят узел, знает он сам, а
+какими настройками это делается - знает реестр ролей. Иначе список аргументов
+клиента растёт с каждым параметром, который понадобилось перекрыть одному узлу.
 """
 
 from dataclasses import dataclass, field
@@ -17,7 +21,7 @@ from typing import Any
 from langchain_openai import ChatOpenAI
 from pydantic import SecretStr
 
-from assistant.integrations.llm.profiles import profile_for
+from assistant.integrations.llm.profiles import NodeRole, overlay_for, profile_for
 from assistant.variables import (
     LLM_PROVIDER,
     LLM_SEED,
@@ -128,20 +132,18 @@ def build_provider_config(provider: str) -> ProviderConfig:
 
 @lru_cache(maxsize = 8)
 def build_llm(
-    temperature: float | None,
-    reasoning_effort: str | None,
-    max_tokens: int | None,
+    role: NodeRole,
     show_reasoning: bool,
     provider: str = LLM_PROVIDER,
 ) -> ChatOpenAI:
     """
     Создаёт клиент модели для узла графа.
 
+    Параметры собираются слоями: профиль модели, поверх него перекрытие роли,
+    поверх - переменные окружения.
+
     Аргументы:
-        temperature: температура узла; None - брать из профиля модели.
-        reasoning_effort: бюджет размышления узла; None - брать из профиля.
-        max_tokens: потолок длины ответа; None - без ограничения. Страховка от
-            модели, которая ушла в бесконечное рассуждение.
+        role: характер работы узла, по нему берётся перекрытие из реестра ролей.
         show_reasoning: запросить текст размышления. Отладочный режим: он уводит
             запрос на responses api и несовместим со схемой - под ним
             with_structured_output отдаёт прозу вместо json.
@@ -151,28 +153,25 @@ def build_llm(
         Готовый клиент.
     """
     config = build_provider_config(provider = provider)
-    profile = profile_for(model = config.model)
+    profile = profile_for(model = config.model).with_overlay(overlay = overlay_for(role = role))
 
     settings: dict[str, Any] = profile.standard()
-    if temperature is not None:
-        settings["temperature"] = temperature
-    if reasoning_effort is not None:
-        settings["reasoning_effort"] = reasoning_effort
-    if max_tokens is not None:
-        settings["max_tokens"] = max_tokens
 
     if show_reasoning:
         # Параметр reasoning уводит запрос на responses api, и только там
         # langchain возвращает блок с текстом рассуждений. Обычный
         # reasoning_effort здесь лишний - он бы гасил то, что мы просим показать.
-        settings["reasoning"] = {"effort": reasoning_effort or "low", "summary": "detailed"}
+        settings["reasoning"] = {
+            "effort": profile.reasoning_effort or "low",
+            "summary": "detailed",
+        }
         settings.pop("reasoning_effort", None)
         # Responses.create() - типизированный метод, presence_penalty он не знает
         # и падает с TypeError.
         settings.pop("presence_penalty", None)
 
-    # Переменная окружения перебивает и профиль, и узел: она для замеров,
-    # когда нужен один и тот же режим на всём прогоне.
+    # Переменная окружения перебивает и профиль, и роль: она для замеров, когда
+    # нужен один и тот же режим на всём прогоне.
     if LLM_TEMPERATURE:
         settings["temperature"] = float(LLM_TEMPERATURE)
 
@@ -207,7 +206,7 @@ def describe_llm(llm: ChatOpenAI) -> str:
     """
     Описывает параметры собранного клиента одной строкой.
 
-    Читает поля самого клиента, а не профиль модели: узел вправе перекрыть
+    Читает поля самого клиента, а не профиль модели: роль узла перекрывает
     профиль, и строка должна показывать то, что реально уедет на сервер.
 
     Аргументы:
