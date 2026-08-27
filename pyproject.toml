@@ -1,0 +1,53 @@
+[project]
+name = "llm-eng-23-omni-assistant"
+version = "0.1.0"
+description = "Add your description here"
+readme = "README.md"
+requires-python = "==3.13.9"
+dependencies = [
+    "langchain-core==1.5.1",
+    "langchain-openai==1.4.1",
+    "langgraph==1.2.9",
+    "openai>=2.45.0,<3.0.0",
+    "pydantic==2.12.4",
+    "python-dotenv==1.2.2",
+]
+
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/assistant"]
+
+[project.scripts]
+start-bot = "assistant.main:main"
+
+[tool.uv]
+managed = true
+package = true 
+
+
+[dependency-groups]
+dev = [
+    "ruff==0.16.3",
+]
+
+[tool.ruff]
+line-length = 110
+target-version = "py313"
+
+[tool.ruff.lint]
+# F  — пиофлейкс: имя, взятое ниоткуда, и импорт, которым никто не пользуется.
+# E4 — беспорядок в импортах, E7 — сравнения и прочие ловушки, E9 — то, что не запустится.
+# B  — багбир: изменяемое значение по умолчанию, потерянная переменная цикла.
+# E501 — длина строки.
+# I  — порядок импортов, иначе настройка групп ниже ничего не делает.
+select = ["F", "E4", "E7", "E9", "E501", "B", "I"]
+
+[tool.ruff.lint.per-file-ignores]
+# Промпт — проза
+"**/prompts.py" = ["E501"]
+
+
