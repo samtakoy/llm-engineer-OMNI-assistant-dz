@@ -12,7 +12,7 @@
 
 import re
 
-from .cache import FileCache, open_cache
+from ..filecache import FileCache, open_cache
 from .config import WebConfig
 from .outcomes import SearchOutcome, SearchResult, ServiceFailure
 

@@ -17,7 +17,7 @@ from urllib.parse import urlparse
 import httpx
 import trafilatura
 
-from .cache import FileCache, open_cache
+from ..filecache import FileCache, open_cache
 from .config import WebConfig
 from .outcomes import PageOutcome, ServiceFailure
 

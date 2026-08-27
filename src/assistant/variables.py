@@ -10,6 +10,7 @@ from pathlib import Path
 
 from dotenv import load_dotenv
 
+from assistant.integrations.speech import SpeechConfig
 from assistant.integrations.web import WebConfig
 
 load_dotenv()
@@ -68,13 +69,30 @@ WEB_CACHE_BYPASS = os.getenv("WEB_CACHE_BYPASS", "").strip().lower() in ("1", "t
 
 
 
-def _cache_directory(raw_path: str) -> Path | None:
+def _project_path(raw_path: str) -> Path:
     """
-    Приводит значение WEB_CACHE_DIR к каталогу кеша.
+    Приводит значение переменной окружения к пути внутри проекта.
 
     Относительный путь считается от корня проекта, а не от текущего каталога:
-    иначе запуск из другой папки заводил бы себе отдельный кеш, и собранный
+    иначе запуск из другой папки заводил бы себе отдельный каталог, и собранный
     материал выглядел бы потерянным.
+
+    Аргументы:
+        raw_path: значение переменной окружения.
+
+    Возвращает:
+        Путь к каталогу.
+    """
+    path = Path(raw_path).expanduser()
+    if path.is_absolute():
+        return path
+
+    return PROJECT_ROOT / path
+
+
+def _cache_directory(raw_path: str) -> Path | None:
+    """
+    Приводит значение переменной окружения к каталогу кеша.
 
     Аргументы:
         raw_path: значение переменной окружения.
@@ -85,11 +103,7 @@ def _cache_directory(raw_path: str) -> Path | None:
     if not raw_path:
         return None
 
-    path = Path(raw_path).expanduser()
-    if path.is_absolute():
-        return path
-
-    return PROJECT_ROOT / path
+    return _project_path(raw_path = raw_path)
 
 
 WEB_CONFIG = WebConfig(
@@ -107,3 +121,36 @@ WEB_CONFIG = WebConfig(
 SHOW_REASONING = os.getenv("SHOW_REASONING", "").strip().lower() in ("1", "true", "yes")
 
 
+# --- Речевой слой --------------------------------------------------------
+# Модель распознавания. На русском small путает имена собственные, medium уже
+# держит, large-v3 на процессоре считает втрое дольше записи.
+SPEECH_MODEL = os.getenv("SPEECH_MODEL", "medium")
+SPEECH_DEVICE = os.getenv("SPEECH_DEVICE", "auto")
+SPEECH_COMPUTE_TYPE = os.getenv("SPEECH_COMPUTE_TYPE", "int8")
+
+# Язык записи. Пусто - определять по звуку, но на коротком вопросе whisper
+# ошибается языком чаще, чем кажется.
+SPEECH_LANGUAGE = os.getenv("SPEECH_LANGUAGE", "ru").strip()
+
+SPEECH_CACHE_DIR = os.getenv("SPEECH_CACHE_DIR", str(PROJECT_ROOT / ".cache" / "speech")).strip()
+SPEECH_CACHE_TTL_DAYS = int(os.getenv("SPEECH_CACHE_TTL_DAYS", "0"))
+SPEECH_CACHE_BYPASS = os.getenv("SPEECH_CACHE_BYPASS", "").strip().lower() in ("1", "true", "yes")
+
+# Whisper приводит звук к 16 кГц, писать выше незачем.
+SPEECH_SAMPLE_RATE = 16_000
+
+# Куда складывать записи с микрофона. Не временный каталог: записанный вопрос -
+# материал, по нему прогон повторяется без микрофона.
+RECORDINGS_DIR = os.getenv("RECORDINGS_DIR", "recordings").strip()
+
+SPEECH_CONFIG = SpeechConfig(
+    recognition_model = SPEECH_MODEL,
+    recognition_device = SPEECH_DEVICE,
+    recognition_compute_type = SPEECH_COMPUTE_TYPE,
+    language = SPEECH_LANGUAGE,
+    cache_directory = _cache_directory(raw_path = SPEECH_CACHE_DIR),
+    cache_ttl_days = SPEECH_CACHE_TTL_DAYS,
+    bypass_cache = SPEECH_CACHE_BYPASS,
+    recording_sample_rate = SPEECH_SAMPLE_RATE,
+    recording_directory = _project_path(raw_path = RECORDINGS_DIR),
+)
