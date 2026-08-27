@@ -24,13 +24,20 @@ def main() -> None:
     for line in describe_nodes():
         print(f"  {line}")
 
-    answer = run_research(question = arguments.question)
+    answer, notes = run_research(question = arguments.question)
 
-    print("\n=== ответ ===")
-    print(answer.answer)
-    print(f"\nуверенность: {answer.confidence}")
+    print(f"\n=== {answer.title} ===\n")
+    print(answer.intro)
+
+    for section in answer.sections:
+        print(f"\n## {section.title}\n")
+        print(section.content)
+
+    print(f"\n{answer.closing}")
+
+    print(f"\n--- опора ---\nуверенность: {notes.confidence}")
     print("источники:")
-    for url in answer.sources:
+    for url in notes.sources:
         print(f"  - {url}")
 
 

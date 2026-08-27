@@ -1,13 +1,17 @@
 """
 Граф ресёрчера.
 
-Классический цикл react: узел agent решает, что делать, узел tools исполняет
-вызовы инструментов, узел finalize собирает структурированный ответ.
+Цикл react на сборе фактов, затем два отдельных узла на выходе:
 
     START -> agent -(есть вызовы инструментов)-> tools -> agent
-               \\-(вызовов нет)-> finalize -> END
+               \\-(вызовов нет)-> collect -> compose -> END
 
-Структура собирается отдельным узлом, а не тем же вызовом, что и вызовы
+Этапы разделены намеренно. Узел agent ищет, collect выжимает из найденного
+проверяемые факты, compose излагает их в запрошенном пользователем виде. Пока
+сбор и изложение жили в одном узле, требование стиля тянуло модель прочь от
+источников, а требование опираться на источники гасило стиль.
+
+Структура собирается отдельными вызовами, а не тем же, что и вызовы
 инструментов: локальные модели плохо переносят совмещение tool calling и
 жёсткой схемы в одном запросе.
 """
@@ -17,8 +21,12 @@ from langchain_openai import ChatOpenAI
 from langgraph.graph import END, START, StateGraph
 from langgraph.prebuilt import ToolNode
 
-from assistant.graph.prompts import FINALIZE_PROMPT, RESEARCHER_SYSTEM_PROMPT
-from assistant.graph.state import Answer, ResearchState
+from assistant.graph.prompts import (
+    COLLECT_PROMPT,
+    COMPOSE_PROMPT,
+    RESEARCHER_SYSTEM_PROMPT,
+)
+from assistant.graph.state import Answer, ResearchNotes, ResearchState
 from assistant.graph.tools import RESEARCH_TOOLS
 from assistant.integrations.llm.client import build_llm, describe_llm, reasoning_text
 from assistant.variables import SHOW_REASONING
@@ -37,13 +45,13 @@ _TEMPERATURE_FROM_PROFILE = None
 # профиль гасит его совсем: платить временем за то, чего не видно, незачем.
 _AGENT_REASONING_EFFORT = "low"
 
-# Узел finalize работает под грамматикой, а под ней размышление оставляет
-# content пустым. Гасит это только "none", low и minimal не помогают.
-_FINALIZE_REASONING_EFFORT = "none"
+# Узлы вывода работают под грамматикой, а под ней размышление оставляет content
+# пустым. Гасит это только "none", low и minimal не помогают.
+_OUTPUT_REASONING_EFFORT = "none"
 
 # Потолок ответа узла agent: вызов инструмента короткий, финальная реплика тоже.
 # Страховка на случай, если модель всё-таки зациклится.
-_AGENT_MAX_TOKENS = 3000
+_AGENT_MAX_TOKENS = 9000
 
 
 def _build_agent_llm() -> ChatOpenAI:
@@ -61,11 +69,11 @@ def _build_agent_llm() -> ChatOpenAI:
     )
 
 
-def _build_finalize_llm() -> ChatOpenAI:
+def _build_output_llm() -> ChatOpenAI:
     """
-    Собирает клиент узла finalize без схемы ответа.
+    Собирает клиент узлов вывода без схемы.
 
-    Схема навешивается в самом узле: описанию в логе она не нужна, а клиент
+    Схема навешивается в самих узлах: описанию в логе она не нужна, а клиент
     после with_structured_output перестаёт быть ChatOpenAI.
 
     Возвращает:
@@ -73,7 +81,7 @@ def _build_finalize_llm() -> ChatOpenAI:
     """
     return build_llm(
         temperature = _TEMPERATURE_FROM_PROFILE,
-        reasoning_effort = _FINALIZE_REASONING_EFFORT,
+        reasoning_effort = _OUTPUT_REASONING_EFFORT,
         max_tokens = None,
         show_reasoning = False,
     )
@@ -81,14 +89,14 @@ def _build_finalize_llm() -> ChatOpenAI:
 
 def describe_nodes() -> list[str]:
     """
-    Описывает параметры моделей обоих узлов.
+    Описывает параметры моделей по узлам.
 
     Возвращает:
         Список строк для вывода в командной строке.
     """
     return [
-        f"agent:    {describe_llm(llm = _build_agent_llm())}",
-        f"finalize: {describe_llm(llm = _build_finalize_llm())}",
+        f"agent:            {describe_llm(llm = _build_agent_llm())}",
+        f"collect, compose: {describe_llm(llm = _build_output_llm())}",
     ]
 
 
@@ -113,7 +121,7 @@ def _log_reasoning(message: AIMessage, round_number: int) -> None:
         for call in message.tool_calls:
             print(f"[инструмент] {call['name']}({call['args']})")
     else:
-        print("[решение] инструменты больше не нужны, перехожу к ответу")
+        print("[решение] инструменты больше не нужны, перехожу к сбору фактов")
 
 
 def _agent_node(state: ResearchState) -> dict:
@@ -149,9 +157,36 @@ def _agent_node(state: ResearchState) -> dict:
     }
 
 
-def _finalize_node(state: ResearchState) -> dict:
+def _collect_node(state: ResearchState) -> dict:
     """
-    Собирает структурированный ответ по накопленным материалам.
+    Выжимает из найденных материалов проверяемые факты.
+
+    Аргументы:
+        state: текущее состояние графа.
+
+    Возвращает:
+        Обновление состояния с полем notes.
+    """
+    llm = _build_output_llm().with_structured_output(ResearchNotes, method = "json_schema")
+
+    notes = llm.invoke(
+        [
+            SystemMessage(content = RESEARCHER_SYSTEM_PROMPT),
+            *state["messages"],
+            HumanMessage(content = COLLECT_PROMPT),
+        ]
+    )
+
+    print(f"\n[факты] собрано {len(notes.facts)}, источников {len(notes.sources)}")
+    return {"notes": notes}
+
+
+def _compose_node(state: ResearchState) -> dict:
+    """
+    Излагает собранные факты в виде, который запросил пользователь.
+
+    В контекст уходит только запрос и выжимка фактов, без истории поиска: сырые
+    страницы тянут модель в пересказ источника вместо требуемого стиля.
 
     Аргументы:
         state: текущее состояние графа.
@@ -159,16 +194,25 @@ def _finalize_node(state: ResearchState) -> dict:
     Возвращает:
         Обновление состояния с полем answer.
     """
-    llm = _build_finalize_llm().with_structured_output(Answer, method = "json_schema")
+    notes = state["notes"]
+    facts = "\n".join(f"- {fact}" for fact in notes.facts)
+
+    llm = _build_output_llm().with_structured_output(Answer, method = "json_schema")
 
     answer = llm.invoke(
         [
-            SystemMessage(content = RESEARCHER_SYSTEM_PROMPT),
-            *state["messages"],
-            HumanMessage(content = FINALIZE_PROMPT),
+            SystemMessage(content = COMPOSE_PROMPT),
+            HumanMessage(
+                content = (
+                    f"Запрос пользователя:\n{state['question']}\n\n"
+                    f"Сводка найденного:\n{notes.summary}\n\n"
+                    f"Собранные факты:\n{facts}"
+                )
+            ),
         ]
     )
 
+    print(f"[текст] разделов {len(answer.sections)}")
     return {"answer": answer}
 
 
@@ -180,10 +224,10 @@ def _route_after_agent(state: ResearchState) -> str:
         state: текущее состояние графа.
 
     Возвращает:
-        Имя следующего узла: tools или finalize.
+        Имя следующего узла: tools или collect.
     """
     last_message = state["messages"][-1]
-    return "tools" if getattr(last_message, "tool_calls", None) else "finalize"
+    return "tools" if getattr(last_message, "tool_calls", None) else "collect"
 
 
 def build_graph():
@@ -197,17 +241,19 @@ def build_graph():
 
     builder.add_node("agent", _agent_node)
     builder.add_node("tools", ToolNode(RESEARCH_TOOLS))
-    builder.add_node("finalize", _finalize_node)
+    builder.add_node("collect", _collect_node)
+    builder.add_node("compose", _compose_node)
 
     builder.add_edge(START, "agent")
-    builder.add_conditional_edges("agent", _route_after_agent, ["tools", "finalize"])
+    builder.add_conditional_edges("agent", _route_after_agent, ["tools", "collect"])
     builder.add_edge("tools", "agent")
-    builder.add_edge("finalize", END)
+    builder.add_edge("collect", "compose")
+    builder.add_edge("compose", END)
 
     return builder.compile()
 
 
-def run_research(question: str) -> Answer:
+def run_research(question: str) -> tuple[Answer, ResearchNotes]:
     """
     Прогоняет вопрос через граф.
 
@@ -215,20 +261,21 @@ def run_research(question: str) -> Answer:
         question: вопрос пользователя.
 
     Возвращает:
-        Структурированный ответ.
+        Кортеж из итогового текста и фактической опоры, на которой он построен.
     """
     initial_state: ResearchState = {
         "question": question,
         "messages": [HumanMessage(content = question)],
         "search_rounds": 0,
+        "notes": None,
         "answer": None,
     }
 
     # Запас по рекурсии: каждый раунд стоит два шага (agent + tools),
-    # плюс финальный вызов и узел сборки ответа.
+    # плюс финальный вызов agent и два узла вывода.
     final_state = build_graph().invoke(
         initial_state,
-        config = {"recursion_limit": MAX_SEARCH_ROUNDS * 2 + 4},
+        config = {"recursion_limit": MAX_SEARCH_ROUNDS * 2 + 5},
     )
 
-    return final_state["answer"]
+    return final_state["answer"], final_state["notes"]
