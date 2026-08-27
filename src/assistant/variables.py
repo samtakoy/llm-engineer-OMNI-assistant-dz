@@ -10,6 +10,8 @@ from pathlib import Path
 
 from dotenv import load_dotenv
 
+from assistant.integrations.web import WebConfig
+
 load_dotenv()
 
 PROJECT_ROOT = Path(__file__).resolve().parents[2]
@@ -44,6 +46,60 @@ LLM_SEED = os.getenv("LLM_SEED", "")
 WEB_USER_AGENT = os.getenv(
     "WEB_USER_AGENT",
     "omni-assistant/0.1 (+https://github.com/samtakoy)",
+)
+
+WEB_TIMEOUT_SECONDS = 10.0
+WEB_MAX_PAGE_BYTES = 2_000_000
+
+# Каталог кеша страниц и поисковой выдачи. Пустое значение выключает кеш целиком.
+WEB_CACHE_DIR = os.getenv("WEB_CACHE_DIR", str(PROJECT_ROOT / ".cache" / "web")).strip()
+
+# Срок годности записей в днях. Ноль - не протухают никогда, и это осознанный
+# выбор: собранная выдача нужна для воспроизводимых прогонов, а забытая
+# настройка не должна однажды молча выбросить собранный материал. Устаревшие
+# записи убираются удалением каталога, а не сроком.
+WEB_PAGE_CACHE_TTL_DAYS = int(os.getenv("WEB_PAGE_CACHE_TTL_DAYS", "0"))
+WEB_SEARCH_CACHE_TTL_DAYS = int(os.getenv("WEB_SEARCH_CACHE_TTL_DAYS", "0"))
+
+# Обход кеша на чтение: нужен, когда правятся формулировки поисковых запросов и
+# замороженная выдача мешает увидеть результат правки. Запись продолжается,
+# поэтому такой прогон обновляет хранилище.
+WEB_CACHE_BYPASS = os.getenv("WEB_CACHE_BYPASS", "").strip().lower() in ("1", "true", "yes")
+
+
+
+def _cache_directory(raw_path: str) -> Path | None:
+    """
+    Приводит значение WEB_CACHE_DIR к каталогу кеша.
+
+    Относительный путь считается от корня проекта, а не от текущего каталога:
+    иначе запуск из другой папки заводил бы себе отдельный кеш, и собранный
+    материал выглядел бы потерянным.
+
+    Аргументы:
+        raw_path: значение переменной окружения.
+
+    Возвращает:
+        Каталог кеша либо None, если значение пустое и кеш выключен.
+    """
+    if not raw_path:
+        return None
+
+    path = Path(raw_path).expanduser()
+    if path.is_absolute():
+        return path
+
+    return PROJECT_ROOT / path
+
+
+WEB_CONFIG = WebConfig(
+    user_agent = WEB_USER_AGENT,
+    request_timeout_seconds = WEB_TIMEOUT_SECONDS,
+    max_page_bytes = WEB_MAX_PAGE_BYTES,
+    cache_directory = _cache_directory(raw_path = WEB_CACHE_DIR),
+    page_cache_ttl_days = WEB_PAGE_CACHE_TTL_DAYS,
+    search_cache_ttl_days = WEB_SEARCH_CACHE_TTL_DAYS,
+    bypass_cache = WEB_CACHE_BYPASS,
 )
 
 # Отладочный режим: включить размышление в фазе поиска и показать его текст.

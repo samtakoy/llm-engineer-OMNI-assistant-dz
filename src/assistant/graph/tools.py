@@ -18,6 +18,7 @@
 from langchain_core.tools import tool
 
 from assistant.integrations.web import ServiceFailure, fetch_page, search
+from assistant.variables import WEB_CONFIG
 
 _MAX_SEARCH_RESULTS = 5
 _MAX_PAGE_CHARACTERS = 4000
@@ -54,7 +55,7 @@ def _advice_on_failure(failure: ServiceFailure, repeat_hint: str) -> str:
 def search_web(query: str) -> tuple[str, str]:
     """Ищет страницы в интернете по запросу. Возвращает заголовок, адрес и краткое
     описание каждой найденной страницы."""
-    outcome = search(query = query, max_results = _MAX_SEARCH_RESULTS)
+    outcome = search(query = query, max_results = _MAX_SEARCH_RESULTS, config = WEB_CONFIG)
 
     if outcome.failure:
         return (
@@ -80,7 +81,7 @@ def search_web(query: str) -> tuple[str, str]:
 def fetch_url(url: str) -> tuple[str, str]:
     """Скачивает страницу по адресу и возвращает её основной текст. Адрес брать
     только из выдачи search_web."""
-    outcome = fetch_page(url = url, max_characters = _MAX_PAGE_CHARACTERS)
+    outcome = fetch_page(url = url, max_characters = _MAX_PAGE_CHARACTERS, config = WEB_CONFIG)
 
     if outcome.failure:
         return (

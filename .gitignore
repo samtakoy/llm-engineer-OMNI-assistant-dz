@@ -13,3 +13,6 @@ wheels/
 .idea
 /src/integrations
 /src/llm
+
+# Кеш веб-слоя
+.cache/
