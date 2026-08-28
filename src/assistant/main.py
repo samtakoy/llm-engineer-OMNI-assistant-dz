@@ -7,7 +7,6 @@ import sys
 from pathlib import Path
 
 from assistant.graph.graph import describe_nodes, run_research
-from assistant.integrations.llm.client import build_provider_config
 from assistant.integrations.listening import SILENCE_LEVEL, SpeechRecognizer, record
 from assistant.variables import LLM_PROVIDER, LISTENING_CONFIG
 
@@ -138,7 +137,7 @@ def main() -> None:
     if not question:
         sys.exit(1)
 
-    print(f"[модель] {build_provider_config(provider = LLM_PROVIDER).model}")
+    print(f"[провайдер] {LLM_PROVIDER}")
     for line in describe_nodes():
         print(f"  {line}")
 

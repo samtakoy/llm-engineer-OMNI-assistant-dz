@@ -80,7 +80,11 @@ def _build_agent_llm() -> ChatOpenAI:
     Возвращает:
         Клиент модели.
     """
-    return build_llm(role = NodeRole.TOOL_CALLING, is_debug_reasoning_on = SHOW_REASONING)
+    return build_llm(
+        role = NodeRole.TOOL_CALLING,
+        is_debug_reasoning_on = SHOW_REASONING,
+        model = None,
+    )
 
 
 def _build_collect_llm() -> ChatOpenAI:
@@ -93,7 +97,7 @@ def _build_collect_llm() -> ChatOpenAI:
     Возвращает:
         Клиент модели.
     """
-    return build_llm(role = NodeRole.EXTRACTION, is_debug_reasoning_on = False)
+    return build_llm(role = NodeRole.EXTRACTION, is_debug_reasoning_on = False, model = None)
 
 
 def _build_compose_llm() -> ChatOpenAI:
@@ -103,7 +107,7 @@ def _build_compose_llm() -> ChatOpenAI:
     Возвращает:
         Клиент модели.
     """
-    return build_llm(role = NodeRole.WRITING, is_debug_reasoning_on = False)
+    return build_llm(role = NodeRole.WRITING, is_debug_reasoning_on = False, model = None)
 
 
 def describe_nodes() -> list[str]:

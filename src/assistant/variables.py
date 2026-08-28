@@ -40,6 +40,16 @@ YC_MODEL = os.getenv("YC_MODEL", "yandexgpt-lite")
 LLM_TEMPERATURE = os.getenv("LLM_TEMPERATURE", "")
 LLM_SEED = os.getenv("LLM_SEED", "")
 
+# --- Модель зрения -------------------------------------------------------
+VISION_PROVIDER = os.getenv("VISION_PROVIDER", "").strip() or LLM_PROVIDER
+VISION_MODEL = os.getenv("VISION_MODEL", "qwen/qwen3-vl-4b").strip()
+
+# До какого размера ужимать картинку перед отправкой.
+VISION_MAX_SIDE = int(os.getenv("VISION_MAX_SIDE", "1024"))
+
+# Качество пережатия.
+VISION_JPEG_QUALITY = int(os.getenv("VISION_JPEG_QUALITY", "85"))
+
 # --- Веб-слой ------------------------------------------------------------
 # Строка User-Agent для запросов к сайтам. Wikimedia и часть других площадок
 # отвечают 403 на agent без контакта: в скобках должен стоять адрес проекта

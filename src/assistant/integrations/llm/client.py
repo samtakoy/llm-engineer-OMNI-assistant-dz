@@ -84,12 +84,14 @@ def _require(value: str, variable: str, provider: str) -> str:
     return value
 
 
-def build_provider_config(provider: str) -> ProviderConfig:
+def build_provider_config(provider: str, model: str | None) -> ProviderConfig:
     """
     Собирает настройки провайдера из переменных окружения.
 
     Аргументы:
         provider: одно из значений PROVIDER_NAMES.
+        model: имя модели, которое перекроет взятое из окружения. None -
+            оставить модель провайдера по умолчанию.
 
     Возвращает:
         Конфигурацию провайдера.
@@ -103,7 +105,7 @@ def build_provider_config(provider: str) -> ProviderConfig:
             name = "local",
             base_url = LOCAL_BASE_URL,
             api_key = LOCAL_API_KEY or "not-needed",
-            model = LOCAL_MODEL,
+            model = model or LOCAL_MODEL,
         )
 
     if provider == "openrouter":
@@ -115,7 +117,7 @@ def build_provider_config(provider: str) -> ProviderConfig:
                 variable = "OPENROUTER_API_KEY",
                 provider = provider,
             ),
-            model = OPENROUTER_MODEL,
+            model = model or OPENROUTER_MODEL,
             extra_body = {"reasoning": {"enabled": False}},
         )
 
@@ -128,7 +130,7 @@ def build_provider_config(provider: str) -> ProviderConfig:
                 variable = "OPENAI_API_KEY",
                 provider = provider,
             ),
-            model = OPENAI_MODEL,
+            model = model or OPENAI_MODEL,
         )
 
     raise RuntimeError(f"Неизвестный провайдер {provider!r}. Ожидается одно из {PROVIDER_NAMES}")
@@ -142,6 +144,7 @@ DEBUG_REASONING_EFFORT = "low"
 def build_llm(
     role: NodeRole,
     is_debug_reasoning_on: bool,
+    model: str | None,
     provider: str = LLM_PROVIDER,
 ) -> ChatOpenAI:
     """
@@ -154,12 +157,13 @@ def build_llm(
         role: характер работы узла, по нему берётся перекрытие из реестра ролей.
         is_debug_reasoning_on: запросить текст размышления. Отладочный режим,
             он накладывает ограничения на схему: docs/SO_with_reasoning.md.
+        model: имя модели. None - взять модель провайдера из окружения.
         provider: провайдер, по умолчанию из окружения.
 
     Возвращает:
         Готовый клиент.
     """
-    config = build_provider_config(provider = provider)
+    config = build_provider_config(provider = provider, model = model)
     profile = profile_for(model = config.model).for_role(role = role)
 
     settings: dict[str, Any] = profile.standard()
@@ -202,7 +206,7 @@ _DESCRIBED_FIELDS = standard_field_names() + ("reasoning",)
 
 def describe_llm(llm: ChatOpenAI) -> str:
     """
-    Описывает параметры собранного клиента одной строкой.
+    Описывает модель и параметры собранного клиента одной строкой.
 
     Читает поля самого клиента, а не профиль модели: роль узла перекрывает
     профиль, и строка должна показывать то, что реально уедет на сервер.
@@ -224,7 +228,7 @@ def describe_llm(llm: ChatOpenAI) -> str:
     settings.update(llm.extra_body or {})
 
     body = ", ".join(f"{key}={value}" for key, value in settings.items())
-    return body or "параметры сервера"
+    return f"{llm.model_name} | {body or 'параметры сервера'}"
 
 
 def reasoning_text(message: object) -> str:

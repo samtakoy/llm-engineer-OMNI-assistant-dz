@@ -15,11 +15,13 @@ class NodeRole(Enum):
         TOOL_CALLING: вызов инструментов.
         EXTRACTION: извлечение структуры.
         WRITING: длинный текст.
+        VISION: разбор картинки.
     """
 
     TOOL_CALLING = "tool_calling"
     EXTRACTION = "extraction"
     WRITING = "writing"
+    VISION = "vision"
 
 
 class BodySection(Enum):
@@ -261,10 +263,7 @@ PROFILES: dict[str, SamplingProfile] = {
         temperature = 0.7,
         top_p = 0.80,
         top_k = 20,
-        min_p = 0.0,
-        presence_penalty = 1.5,
         repeat_penalty = 1.0,
-        reasoning_effort = "none",
         role_overlays = {
             NodeRole.WRITING: RoleOverlay(
                 temperature = 0.7,
@@ -286,7 +285,7 @@ PROFILES: dict[str, SamplingProfile] = {
                 note = "4b: штраф за тему на длинном контексте давал петлю",
             ),
         },
-        note = "карточка qwen3-vl, режим без размышления",
+        note = "generation_config.json из репозитория Qwen/Qwen3-VL-4B-Instruct",
     ),
 }
 
@@ -310,6 +309,11 @@ ROLE_OVERLAYS: dict[NodeRole, RoleOverlay] = {
         repeat_penalty = 1.05,
         reasoning_effort = "none",
         note = "presence_penalty выбивал русские слова в соседний язык",
+    ),
+    NodeRole.VISION: RoleOverlay(
+        reasoning_effort = "none",
+        max_tokens = 600,
+        note = "сэмплирование из карточки модели; потолок рубит цикл: описание кадра укладывается в 400 токенов",
     ),
 }
 
