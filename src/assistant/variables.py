@@ -17,6 +17,38 @@ load_dotenv()
 
 PROJECT_ROOT = Path(__file__).resolve().parents[2]
 
+
+def _project_path(raw_path: str) -> Path:
+    """
+    Приводит значение переменной окружения к пути внутри проекта.
+    Аргументы:
+        raw_path: значение переменной окружения.
+    Возвращает:
+        Путь к каталогу.
+    """
+    path = Path(raw_path).expanduser()
+    if path.is_absolute():
+        return path
+
+    return PROJECT_ROOT / path
+
+
+def _cache_directory(raw_path: str) -> Path | None:
+    """
+    Приводит значение переменной окружения к каталогу кеша.
+
+    Аргументы:
+        raw_path: значение переменной окружения.
+
+    Возвращает:
+        Каталог кеша либо None, если значение пустое и кеш выключен.
+    """
+    if not raw_path:
+        return None
+
+    return _project_path(raw_path = raw_path)
+
+
 # --- Провайдер моделей ---------------------------------------------------
 LLM_PROVIDER = os.getenv("LLM_PROVIDER", "local")
 
@@ -50,6 +82,13 @@ VISION_MAX_SIDE = int(os.getenv("VISION_MAX_SIDE", "1024"))
 # Качество пережатия.
 VISION_JPEG_QUALITY = int(os.getenv("VISION_JPEG_QUALITY", "85"))
 
+# Каталог кеша разборов картинок. Пустое значение выключает кеш.
+VISION_CACHE_DIR = _cache_directory(
+    raw_path = os.getenv("VISION_CACHE_DIR", str(PROJECT_ROOT / ".cache" / "vision")).strip()
+)
+VISION_CACHE_TTL_DAYS = int(os.getenv("VISION_CACHE_TTL_DAYS", "0"))
+VISION_CACHE_BYPASS = os.getenv("VISION_CACHE_BYPASS", "").strip().lower() in ("1", "true", "yes")
+
 # --- Веб-слой ------------------------------------------------------------
 # Строка User-Agent для запросов к сайтам. Wikimedia и часть других площадок
 # отвечают 403 на agent без контакта: в скобках должен стоять адрес проекта
@@ -77,43 +116,6 @@ WEB_SEARCH_CACHE_TTL_DAYS = int(os.getenv("WEB_SEARCH_CACHE_TTL_DAYS", "0"))
 # поэтому такой прогон обновляет хранилище.
 WEB_CACHE_BYPASS = os.getenv("WEB_CACHE_BYPASS", "").strip().lower() in ("1", "true", "yes")
 
-
-
-def _project_path(raw_path: str) -> Path:
-    """
-    Приводит значение переменной окружения к пути внутри проекта.
-
-    Относительный путь считается от корня проекта, а не от текущего каталога:
-    иначе запуск из другой папки заводил бы себе отдельный каталог, и собранный
-    материал выглядел бы потерянным.
-
-    Аргументы:
-        raw_path: значение переменной окружения.
-
-    Возвращает:
-        Путь к каталогу.
-    """
-    path = Path(raw_path).expanduser()
-    if path.is_absolute():
-        return path
-
-    return PROJECT_ROOT / path
-
-
-def _cache_directory(raw_path: str) -> Path | None:
-    """
-    Приводит значение переменной окружения к каталогу кеша.
-
-    Аргументы:
-        raw_path: значение переменной окружения.
-
-    Возвращает:
-        Каталог кеша либо None, если значение пустое и кеш выключен.
-    """
-    if not raw_path:
-        return None
-
-    return _project_path(raw_path = raw_path)
 
 
 WEB_CONFIG = WebConfig(
