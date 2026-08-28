@@ -1,5 +1,5 @@
 """
-Разбор фотографии персонажа: облик текстом и кеш разборов.
+Разбор фотографии персонажа: облик текстом, кеш разборов и сборка рассказчика.
 
 Наружу исключения не уходят - причина возвращается второй половиной пары.
 """
@@ -7,6 +7,7 @@
 import hashlib
 from pathlib import Path
 
+from langchain_core.messages import HumanMessage, SystemMessage
 from langchain_openai import ChatOpenAI
 
 from ..integrations.filecache import open_cache
@@ -18,7 +19,8 @@ from ..variables import (
     VISION_JPEG_QUALITY,
     VISION_MAX_SIDE,
 )
-from .prompts import LOOK_PROMPT
+from .prompts import LOOK_PROMPT, PERSONA_PROMPT
+from .schemas import Persona
 
 # Подкаталог кеша и версия формата записи. Версия поднимается при смене
 # состава полей записи.
@@ -111,3 +113,34 @@ def describe_look(llm: ChatOpenAI, image_path: Path) -> tuple[str, str]:
         cache.write(key = key, payload = {"look": look, "image": image_path.name})
 
     return look, ""
+
+
+def build_persona(llm: ChatOpenAI, look: str) -> tuple[Persona | None, str]:
+    """
+    Придумывает рассказчика по описанию облика.
+
+    Аргументы:
+        llm: клиент текстовой модели.
+        look: описание облика персонажа.
+
+    Возвращает:
+        Пару «персонаж, причина неудачи». При успехе причина пустая, при
+        неудаче персонаж None.
+    """
+    if not look.strip():
+        return None, "описание облика пустое"
+
+    structured_llm = llm.with_structured_output(Persona, method = "json_schema")
+
+    try:
+        persona = structured_llm.invoke(
+            [
+                SystemMessage(content = PERSONA_PROMPT),
+                HumanMessage(content = f"Описание облика:\n{look}"),
+            ]
+        )
+    except Exception as error:
+        print(f"[персона] вызов модели не удался: {type(error).__name__}: {error}")
+        return None, f"модель не ответила по схеме: {type(error).__name__}"
+
+    return persona, ""

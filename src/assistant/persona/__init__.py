@@ -8,10 +8,14 @@
 возвращается краткая причина.
 """
 
-from .pipeline import describe_look
-from .prompts import LOOK_PROMPT
+from .pipeline import build_persona, describe_look
+from .prompts import LOOK_PROMPT, PERSONA_PROMPT
+from .schemas import Persona
 
 __all__ = [
     "describe_look",
+    "build_persona",
+    "Persona",
     "LOOK_PROMPT",
+    "PERSONA_PROMPT",
 ]
