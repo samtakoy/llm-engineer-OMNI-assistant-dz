@@ -1,8 +1,8 @@
 """
-Речевой слой: запись вопроса с микрофона и распознавание речи.
+Речевой вход: запись вопроса с микрофона и распознавание речи.
 
 Пакет не импортирует ничего из проекта, не читает окружение и не пишет в
-журнал: все настройки приходят объектом SpeechConfig, а сообщения печатаются
+журнал: все настройки приходят объектом ListeningConfig, а сообщения печатаются
 через print. Перенос в другой проект - копирование папки вместе с соседним
 модулем filecache.py, на котором держится кеш расшифровок.
 
@@ -16,13 +16,13 @@
 Пример использования описан в README.md рядом с этим файлом.
 """
 
-from .config import SpeechConfig
+from .config import ListeningConfig
 from .outcomes import RecordingOutcome, TranscriptOutcome
 from .recognition import SpeechRecognizer
 from .recording import SILENCE_LEVEL, record
 
 __all__ = [
-    "SpeechConfig",
+    "ListeningConfig",
     "TranscriptOutcome",
     "RecordingOutcome",
     "SpeechRecognizer",

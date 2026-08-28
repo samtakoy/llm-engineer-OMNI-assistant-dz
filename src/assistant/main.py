@@ -8,8 +8,8 @@ from pathlib import Path
 
 from assistant.graph.graph import describe_nodes, run_research
 from assistant.integrations.llm.client import build_provider_config
-from assistant.integrations.speech import SILENCE_LEVEL, SpeechRecognizer, record
-from assistant.variables import LLM_PROVIDER, SPEECH_CONFIG
+from assistant.integrations.listening import SILENCE_LEVEL, SpeechRecognizer, record
+from assistant.variables import LLM_PROVIDER, LISTENING_CONFIG
 
 # Значение --record без числа: писать до нажатия Enter.
 _RECORD_UNTIL_ENTER = 0.0
@@ -86,7 +86,7 @@ def transcribe_recording(seconds: float) -> str:
     """
     outcome = record(
         seconds = None if seconds <= _RECORD_UNTIL_ENTER else seconds,
-        config = SPEECH_CONFIG,
+        config = LISTENING_CONFIG,
     )
 
     if outcome.error or outcome.path is None:
@@ -113,7 +113,7 @@ def transcribe_file(audio_path: Path) -> str:
     Возвращает:
         Текст вопроса либо пустую строку, если распознать не вышло.
     """
-    recognizer = SpeechRecognizer(config = SPEECH_CONFIG)
+    recognizer = SpeechRecognizer(config = LISTENING_CONFIG)
     outcome = recognizer.transcribe(audio_path = audio_path)
 
     if outcome.error:

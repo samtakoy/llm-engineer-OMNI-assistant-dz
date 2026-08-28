@@ -1,10 +1,10 @@
-# Речевой слой
+# Речевой вход
 
 Запись вопроса с микрофона, распознавание речи и кеш расшифровок.
 
 Пакет не импортирует ничего из проекта, не читает окружение и не пишет в журнал.
 Перенос в другой проект - копирование папки вместе с соседним модулем
-`../filecache.py` и сборка `SpeechConfig` там, где проекту удобно.
+`../filecache.py` и сборка `ListeningConfig` там, где проекту удобно.
 
 Внешние зависимости: `faster-whisper` для распознавания, `sounddevice` и `numpy`
 для записи. Обе группы импортируются внутри функций: без микрофона распознавание
@@ -15,9 +15,9 @@
 ```python
 from pathlib import Path
 
-from assistant.integrations.speech import SpeechConfig, SpeechRecognizer, record
+from assistant.integrations.listening import ListeningConfig, SpeechRecognizer, record
 
-config = SpeechConfig(
+config = ListeningConfig(
     recognition_model = "medium",
     recognition_device = "auto",
     recognition_compute_type = "int8",
@@ -39,7 +39,7 @@ print(outcome.text)
 модель весит от сотен мегабайт до полутора гигабайт и грузится секундами.
 Загрузка отложена до первого распознавания.
 
-## SpeechConfig
+## ListeningConfig
 
 | Поле | Что задаёт |
 | --- | --- |

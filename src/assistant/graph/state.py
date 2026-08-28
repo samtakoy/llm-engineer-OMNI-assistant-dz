@@ -12,13 +12,13 @@ from langchain_core.messages import AnyMessage
 from langgraph.graph.message import add_messages
 from pydantic import BaseModel, Field
 
-
+# confidence пока никак не используется, будет его считать флагом склоняющим модель к самопроверке при ответе
 class ResearchNotes(BaseModel):
     """Фактическая опора, собранная по источникам."""
 
     summary: str = Field(description = "Краткая сводка найденного")
     facts: list[str] = Field(
-        description = "Отдельные факты, каждый одним предложением, только из найденных материалов"
+        description = "Отдельные факты, каждый одним-двумя предложениями, только из найденных материалов"
     )
     confidence: Literal["высокая", "средняя", "низкая"] = Field(
         description = "Насколько найденные материалы подтверждают собранное"

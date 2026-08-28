@@ -19,7 +19,7 @@ from pathlib import Path
 from types import ModuleType
 from typing import Any
 
-from .config import SpeechConfig
+from .config import ListeningConfig
 from .outcomes import RecordingOutcome
 
 # Ширина отсчёта: пишем в int16, так же его понимает wave и любой декодер.
@@ -31,7 +31,7 @@ _MAX_AMPLITUDE = 32768.0
 SILENCE_LEVEL = 0.01
 
 
-def record(seconds: float | None, config: SpeechConfig) -> RecordingOutcome:
+def record(seconds: float | None, config: ListeningConfig) -> RecordingOutcome:
     """
     Пишет звук с микрофона в файл.
 

@@ -10,7 +10,7 @@ from pathlib import Path
 
 from dotenv import load_dotenv
 
-from assistant.integrations.speech import SpeechConfig
+from assistant.integrations.listening import ListeningConfig
 from assistant.integrations.web import WebConfig
 
 load_dotenv()
@@ -121,7 +121,7 @@ WEB_CONFIG = WebConfig(
 SHOW_REASONING = os.getenv("SHOW_REASONING", "").strip().lower() in ("1", "true", "yes")
 
 
-# --- Речевой слой --------------------------------------------------------
+# --- Речевой вход ---------------------------------------------------------
 # Модель распознавания. На русском small путает имена собственные, medium уже
 # держит, large-v3 на процессоре считает втрое дольше записи.
 SPEECH_MODEL = os.getenv("SPEECH_MODEL", "medium")
@@ -143,7 +143,7 @@ SPEECH_SAMPLE_RATE = 16_000
 # материал, по нему прогон повторяется без микрофона.
 RECORDINGS_DIR = os.getenv("RECORDINGS_DIR", "recordings").strip()
 
-SPEECH_CONFIG = SpeechConfig(
+LISTENING_CONFIG = ListeningConfig(
     recognition_model = SPEECH_MODEL,
     recognition_device = SPEECH_DEVICE,
     recognition_compute_type = SPEECH_COMPUTE_TYPE,

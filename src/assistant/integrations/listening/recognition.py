@@ -19,7 +19,7 @@ from pathlib import Path
 from typing import Any
 
 from ..filecache import open_cache
-from .config import SpeechConfig
+from .config import ListeningConfig
 from .outcomes import TranscriptOutcome
 
 # Версия формата записи о расшифровке.
@@ -39,7 +39,7 @@ class SpeechRecognizer:
     и проект, который в этот прогон говорить не собирался, не платит за неё.
     """
 
-    def __init__(self, config: SpeechConfig) -> None:
+    def __init__(self, config: ListeningConfig) -> None:
         """
         Аргументы:
             config: настройки речевого слоя.
