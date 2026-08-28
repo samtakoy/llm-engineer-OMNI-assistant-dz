@@ -66,7 +66,9 @@ class RoleOverlay:
         temperature: температура.
         top_p: ядерная выборка.
         presence_penalty: штраф за повтор темы.
+        frequency_penalty: штраф за частоту повтора.
         repeat_penalty: штраф за повтор токенов.
+        repeat_last_n: окно, по которому считаются штрафы.
         reasoning_effort: бюджет размышления.
         max_tokens: потолок длины ответа.
         note: зачем роли эти значения.
@@ -75,7 +77,9 @@ class RoleOverlay:
     temperature: float | None | Keep = KEEP
     top_p: float | None | Keep = KEEP
     presence_penalty: float | None | Keep = KEEP
+    frequency_penalty: float | None | Keep = KEEP
     repeat_penalty: float | None | Keep = KEEP
+    repeat_last_n: int | None | Keep = KEEP
     reasoning_effort: str | None | Keep = KEEP
     max_tokens: int | None | Keep = KEEP
     note: str = ""
@@ -91,12 +95,16 @@ class SamplingProfile:
         top_p: ядерная выборка.
         top_k: отсечение по числу кандидатов (extra_body).
         min_p: отсечение по доле вероятности лидера (extra_body).
-        presence_penalty: штраф за повтор темы.
+        presence_penalty: штраф за повтор темы, одинаковый при любом числе повторов.
+        frequency_penalty: штраф за повтор темы, растущий с числом повторов.
         repeat_penalty: штраф за повтор токенов (extra_body).
+        repeat_last_n: сколько последних токенов видят штрафы; -1 - весь
+            контекст, 0 - штрафы выключены (extra_body).
         reasoning_effort: бюджет размышления; None - не трогать.
         stop: последовательности остановки, если модель не останавливается сама.
         max_tokens: потолок длины ответа; None - без ограничения.
         note: откуда взяты значения.
+        role_overlays: уточнение перекрытия роли под эту модель.
     """
 
     temperature: float | None = field(default = None, metadata = {"body": BodySection.STANDARD})
@@ -104,11 +112,14 @@ class SamplingProfile:
     top_k: int | None = field(default = None, metadata = {"body": BodySection.EXTRA})
     min_p: float | None = field(default = None, metadata = {"body": BodySection.EXTRA})
     presence_penalty: float | None = field(default = None, metadata = {"body": BodySection.STANDARD})
+    frequency_penalty: float | None = field(default = None, metadata = {"body": BodySection.STANDARD})
     repeat_penalty: float | None = field(default = None, metadata = {"body": BodySection.EXTRA})
+    repeat_last_n: int | None = field(default = None, metadata = {"body": BodySection.EXTRA})
     reasoning_effort: str | None = field(default = None, metadata = {"body": BodySection.STANDARD})
     stop: tuple[str, ...] | None = field(default = None, metadata = {"body": BodySection.STANDARD})
     max_tokens: int | None = field(default = None, metadata = {"body": BodySection.STANDARD})
     note: str = ""
+    role_overlays: dict[NodeRole, "RoleOverlay"] = field(default_factory = dict)
 
     def _body(self, section: BodySection) -> dict[str, object]:
         """
@@ -169,6 +180,27 @@ class SamplingProfile:
         notes = [note for note in (self.note, overlay.note) if note]
         return replace(self, **overridden, note = "; ".join(notes))
 
+    def for_role(self, role: NodeRole) -> "SamplingProfile":
+        """
+        Собирает профиль узла: значения модели, поверх - роль, поверх - роль этой модели.
+
+        Третий слой нужен, потому что общее перекрытие роли одно на все модели,
+        а удачные для крупной модели значения ломают мелкую.
+
+        Аргументы:
+            role: характер работы узла.
+
+        Возвращает:
+            Профиль с наложенными перекрытиями.
+        """
+        tuned = self.with_overlay(overlay = overlay_for(role = role))
+        model_overlay = self.role_overlays.get(role)
+
+        if model_overlay is None:
+            return tuned
+
+        return tuned.with_overlay(overlay = model_overlay)
+
     def extra(self) -> dict[str, object]:
         """
         Возвращает параметры, живущие в extra_body.
@@ -224,6 +256,37 @@ PROFILES: dict[str, SamplingProfile] = {
         repeat_penalty = 1.0,
         reasoning_effort = "none",
         note = "instruct-набор карточки qwen: профиль выключает размышление",
+    ),
+    "qwen3-vl-4b": SamplingProfile(
+        temperature = 0.7,
+        top_p = 0.80,
+        top_k = 20,
+        min_p = 0.0,
+        presence_penalty = 1.5,
+        repeat_penalty = 1.0,
+        reasoning_effort = "none",
+        role_overlays = {
+            NodeRole.WRITING: RoleOverlay(
+                temperature = 0.7,
+                presence_penalty = 1.0,
+                frequency_penalty = 0.4,
+                repeat_penalty = 1.05,
+                repeat_last_n = -1,
+                note = "4b: узел зацикливался, а на окне по умолчанию повторял фразы между разделами",
+            ),
+            NodeRole.EXTRACTION: RoleOverlay(
+                temperature = 0.7,
+                repeat_penalty = 1.05,
+                note = "4b: жадная выборка без единого штрафа за повтор",
+            ),
+            NodeRole.TOOL_CALLING: RoleOverlay(
+                presence_penalty = None,
+                repeat_penalty = 1.05,
+                max_tokens = 2000,
+                note = "4b: штраф за тему на длинном контексте давал петлю",
+            ),
+        },
+        note = "карточка qwen3-vl, режим без размышления",
     ),
 }
 

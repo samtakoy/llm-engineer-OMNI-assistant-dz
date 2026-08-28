@@ -23,7 +23,6 @@ from pydantic import SecretStr
 
 from assistant.integrations.llm.profiles import (
     NodeRole,
-    overlay_for,
     profile_for,
     standard_field_names,
 )
@@ -148,8 +147,8 @@ def build_llm(
     """
     Создаёт клиент модели для узла графа.
 
-    Параметры собираются слоями: профиль модели, поверх него перекрытие роли,
-    поверх - переменные окружения.
+    Параметры собираются слоями: профиль модели, поверх него общее перекрытие
+    роли, поверх - перекрытие роли под эту модель, поверх - переменные окружения.
 
     Аргументы:
         role: характер работы узла, по нему берётся перекрытие из реестра ролей.
@@ -161,7 +160,7 @@ def build_llm(
         Готовый клиент.
     """
     config = build_provider_config(provider = provider)
-    profile = profile_for(model = config.model).with_overlay(overlay = overlay_for(role = role))
+    profile = profile_for(model = config.model).for_role(role = role)
 
     settings: dict[str, Any] = profile.standard()
 
