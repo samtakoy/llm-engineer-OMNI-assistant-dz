@@ -8,14 +8,17 @@
 возвращается краткая причина.
 """
 
+from .narrator import render_narrator_prompt
 from .pipeline import build_persona, describe_look
-from .prompts import LOOK_PROMPT, PERSONA_PROMPT
+from .prompts import LOOK_PROMPT, NARRATOR_TEMPLATE, PERSONA_PROMPT
 from .schemas import Persona
 
 __all__ = [
     "describe_look",
     "build_persona",
+    "render_narrator_prompt",
     "Persona",
     "LOOK_PROMPT",
     "PERSONA_PROMPT",
+    "NARRATOR_TEMPLATE",
 ]

@@ -141,7 +141,7 @@ def main() -> None:
     for line in describe_nodes():
         print(f"  {line}")
 
-    answer, notes = run_research(question = question)
+    answer, notes = run_research(question = question, narrator_prompt = None)
 
     print(f"\n=== {answer.title} ===\n")
     print(answer.intro)

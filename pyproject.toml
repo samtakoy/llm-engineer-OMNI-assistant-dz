@@ -17,6 +17,9 @@ dependencies = [
     "sounddevice==0.5.6",
     "numpy==2.5.2",
     "pillow==12.3.0",
+
+
+
 ]
 
 
@@ -38,6 +41,7 @@ package = true
 [dependency-groups]
 dev = [
     "ruff==0.16.3",
+    "pytest==8.4.2",
 ]
 
 [tool.ruff]

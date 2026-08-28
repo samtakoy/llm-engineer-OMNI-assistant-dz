@@ -430,11 +430,14 @@ def _compose_node(state: ResearchState) -> dict:
     notes = state["notes"]
     facts = "\n".join(f"- {fact}" for fact in notes.facts)
 
+    narrator_prompt = state["narrator_prompt"]
+    system_prompt = f"{COMPOSE_PROMPT}\n{narrator_prompt}" if narrator_prompt else COMPOSE_PROMPT
+
     llm = _build_compose_llm().with_structured_output(Answer, method = "json_schema")
 
     answer = llm.invoke(
         [
-            SystemMessage(content = COMPOSE_PROMPT),
+            SystemMessage(content = system_prompt),
             HumanMessage(
                 content = (
                     f"Запрос пользователя:\n{state['question']}\n\n"
@@ -488,12 +491,14 @@ def build_graph():
     return builder.compile()
 
 
-def run_research(question: str) -> tuple[Answer, ResearchNotes]:
+def run_research(question: str, narrator_prompt: str | None) -> tuple[Answer, ResearchNotes]:
     """
     Прогоняет вопрос через граф.
 
     Аргументы:
         question: вопрос пользователя.
+        narrator_prompt: блок про рассказчика для узла изложения; None -
+            изложение без персонажа.
 
     Возвращает:
         Кортеж из итогового текста и фактической опоры, на которой он построен.
@@ -501,6 +506,7 @@ def run_research(question: str) -> tuple[Answer, ResearchNotes]:
     initial_state: ResearchState = {
         "question": question,
         "messages": [HumanMessage(content = question)],
+        "narrator_prompt": narrator_prompt,
         "notes": None,
         "answer": None,
     }

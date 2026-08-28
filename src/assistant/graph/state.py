@@ -61,11 +61,14 @@ class ResearchState(TypedDict):
     Поля:
         question: исходный вопрос пользователя.
         messages: история диалога с моделью, включая вызовы инструментов.
+        narrator_prompt: блок про рассказчика для узла compose; None - изложение
+            без персонажа.
         notes: фактическая опора, появляется на узле collect.
         answer: итоговый текст, появляется на узле compose.
     """
 
     question: str
     messages: Annotated[list[AnyMessage], add_messages]
+    narrator_prompt: str | None
     notes: ResearchNotes | None
     answer: Answer | None
