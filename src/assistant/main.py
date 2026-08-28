@@ -1,14 +1,16 @@
 """
 Точка входа: вопрос из командной строки, голосом или записью, ответ на экран.
+Фотография персонажа задаёт манеру изложения.
 """
 
 import argparse
 import sys
 from pathlib import Path
 
-from assistant.graph.graph import describe_nodes, run_research
+from assistant.graph.graph import describe_nodes
 from assistant.integrations.listening import SILENCE_LEVEL, SpeechRecognizer, record
-from assistant.variables import LLM_PROVIDER, LISTENING_CONFIG
+from assistant.omni import run_omni_assistant
+from assistant.variables import LISTENING_CONFIG, LLM_PROVIDER
 
 # Значение --record без числа: писать до нажатия Enter.
 _RECORD_UNTIL_ENTER = 0.0
@@ -30,6 +32,10 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument(
         "--audio",
         help = "файл с записью вопроса; формат любой",
+    )
+    parser.add_argument(
+        "--image",
+        help = "фотография персонажа, от лица которого ведётся экскурсия",
     )
     parser.add_argument(
         "--record",
@@ -141,7 +147,19 @@ def main() -> None:
     for line in describe_nodes():
         print(f"  {line}")
 
-    answer, notes = run_research(question = question, narrator_prompt = None)
+    outcome = run_omni_assistant(
+        image_path = Path(arguments.image) if arguments.image else None,
+        question = question,
+    )
+
+    if outcome.error:
+        print(f"Разобрать фотографию не вышло: {outcome.error}")
+        sys.exit(1)
+
+    answer, notes = outcome.answer, outcome.notes
+
+    if outcome.persona is not None:
+        print(f"\n[рассказчик] {outcome.persona.name}: {outcome.persona.speech_manner}")
 
     print(f"\n=== {answer.title} ===\n")
     print(answer.intro)
