@@ -32,6 +32,13 @@ KIND_TOOL_CALL = "tool_call"
 KIND_TOOL_RESULT = "tool_result"
 KIND_NOTE = "note"
 
+# Поле ответа с текстом размышления: его кладёт в additional_kwargs клиент
+# модели. Имя дублируется здесь, чтобы журнал не зависел от кода проекта.
+REASONING_FIELD = "reasoning_content"
+
+# Заголовок спойлера, под который прячется текст размышления модели.
+REASONING_TITLE = "Размышления модели:"
+
 
 class MarkdownTrace(BaseCallbackHandler):
     """
@@ -167,7 +174,7 @@ class MarkdownTrace(BaseCallbackHandler):
         reasoning = _reasoning_text(message)
         if reasoning:
             self._block(KIND_REASONING, node, run_id, parent_run_id, "размышление",
-                        sections = [(None, _as_quote(reasoning), "raw")])
+                        sections = [(REASONING_TITLE, _as_quote(reasoning), "raw")])
 
         text = _answer_text(message)
         calls = getattr(message, "tool_calls", None) or []
@@ -525,20 +532,9 @@ def _reasoning_text(message: object) -> str:
     Возвращает:
         Текст размышления либо пустую строку.
     """
-    blocks = getattr(message, "content_blocks", None) or []
-    parts: list[str] = []
+    extras = getattr(message, "additional_kwargs", None) or {}
 
-    for block in blocks:
-        if block.get("type") != "reasoning":
-            continue
-        if block.get("reasoning"):
-            parts.append(str(block["reasoning"]))
-            continue
-        for chunk in block.get("extras", {}).get("content", []):
-            if chunk.get("text"):
-                parts.append(str(chunk["text"]))
-
-    return "\n".join(parts).strip()
+    return str(extras.get(REASONING_FIELD, "")).strip()
 
 
 def _pretty(value: object) -> str:

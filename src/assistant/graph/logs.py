@@ -11,7 +11,6 @@ from langchain_core.messages import AIMessage
 
 from assistant.graph.budget import MAX_FAILED_CALLS, MAX_SUCCESSFUL_CALLS_PER_TOOL
 from assistant.graph.state import Answer, ResearchNotes
-from assistant.integrations.llm.client import reasoning_text
 
 logger = logging.getLogger(__name__)
 
@@ -62,7 +61,7 @@ def log_budget(
 
 def log_decision(message: AIMessage) -> None:
     """
-    Пишет размышление модели и её решение на текущем шаге.
+    Пишет решение модели на текущем шаге.
 
     Аргументы:
         message: ответ модели.
@@ -70,10 +69,6 @@ def log_decision(message: AIMessage) -> None:
     Возвращает:
         Ничего.
     """
-    reasoning = reasoning_text(message)
-    if reasoning:
-        logger.info(f"[размышление]\n{reasoning}")
-
     if message.tool_calls:
         for call in message.tool_calls:
             logger.info(f"[инструмент] {call['name']}({call['args']})")

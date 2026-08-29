@@ -9,21 +9,19 @@ from langchain_openai import ChatOpenAI
 
 from assistant.integrations.llm.client import build_llm, describe_llm
 from assistant.integrations.llm.profiles import NodeRole
-from assistant.variables import SHOW_REASONING
+from assistant.variables import ENABLE_ALL_REASONING
 
 
 def build_agent_llm() -> ChatOpenAI:
     """
     Собирает клиент узла agent.
 
-    Размышление включается переменной окружения SHOW_REASONING.
-
     Возвращает:
         Клиент модели.
     """
     return build_llm(
         role = NodeRole.TOOL_CALLING,
-        is_debug_reasoning_on = SHOW_REASONING,
+        is_reasoning_forced = ENABLE_ALL_REASONING,
         model = None,
     )
 
@@ -38,7 +36,11 @@ def build_collect_llm() -> ChatOpenAI:
     Возвращает:
         Клиент модели.
     """
-    return build_llm(role = NodeRole.EXTRACTION, is_debug_reasoning_on = False, model = None)
+    return build_llm(
+        role = NodeRole.EXTRACTION,
+        is_reasoning_forced = ENABLE_ALL_REASONING,
+        model = None,
+    )
 
 
 def build_compose_llm() -> ChatOpenAI:
@@ -48,7 +50,11 @@ def build_compose_llm() -> ChatOpenAI:
     Возвращает:
         Клиент модели.
     """
-    return build_llm(role = NodeRole.WRITING, is_debug_reasoning_on = False, model = None)
+    return build_llm(
+        role = NodeRole.WRITING,
+        is_reasoning_forced = ENABLE_ALL_REASONING,
+        model = None,
+    )
 
 
 def describe_nodes() -> list[str]:

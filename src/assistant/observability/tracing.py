@@ -13,7 +13,7 @@ from langchain_core.callbacks import BaseCallbackHandler
 
 from assistant.observability.console import PACKAGE_LOGGER_NAME
 from assistant.observability.md_trace import MarkdownTrace, NoteHandler
-from assistant.variables import LLM_PROVIDER, SHOW_REASONING, TRACE_DIR
+from assistant.variables import ENABLE_ALL_REASONING, LLM_PROVIDER, TRACE_DIR
 
 
 def build_callbacks(
@@ -91,7 +91,7 @@ def _header_rows(node_rows: list[str]) -> list[str]:
     """
     return [
         f"- провайдер: `{LLM_PROVIDER}`",
-        f"- размышление: {'включено' if SHOW_REASONING else 'выключено'}",
+        f"- размышление на всех узлах: {'включено' if ENABLE_ALL_REASONING else 'выключено'}",
         "- модели по узлам:",
         *[f"    - {line}" for line in node_rows],
     ]

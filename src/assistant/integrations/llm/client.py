@@ -18,6 +18,7 @@ from dataclasses import dataclass, field
 from functools import lru_cache
 from typing import Any
 
+from langchain_core.outputs import ChatResult
 from langchain_openai import ChatOpenAI
 from pydantic import SecretStr
 
@@ -136,14 +137,91 @@ def build_provider_config(provider: str, model: str | None) -> ProviderConfig:
     raise RuntimeError(f"Неизвестный провайдер {provider!r}. Ожидается одно из {PROVIDER_NAMES}")
 
 
-# Бюджет размышления в отладочном режиме, см. docs/SO_with_reasoning.md.
-DEBUG_REASONING_EFFORT = "low"
+# Бюджет размышления, когда отладочный режим включает его на всех узлах.
+FORCED_REASONING_EFFORT = "low"
+
+# Поле ответа с текстом размышления. В спецификацию openai не входит: его шлют
+# openai-совместимые серверы, langchain такие поля отбрасывает.
+REASONING_FIELD = "reasoning_content"
+
+
+class ChatOpenAIWithReasoning(ChatOpenAI):
+    """
+    Клиент чата, сохраняющий текст размышления.
+
+    Базовый класс отбрасывает поля ответа вне спецификации openai и отсылает к
+    подклассу провайдера. Здесь reasoning_content переносится в
+    additional_kwargs сообщения.
+    """
+
+    def _create_chat_result(
+        self,
+        response: Any,
+        generation_info: dict | None = None,
+    ) -> ChatResult:
+        """
+        Собирает результат вызова и добавляет к сообщениям текст размышления.
+
+        Аргументы:
+            response: ответ сервера.
+            generation_info: сведения о генерации.
+
+        Возвращает:
+            Результат вызова.
+        """
+        result = super()._create_chat_result(
+            response = response,
+            generation_info = generation_info,
+        )
+
+        for generation, choice in zip(result.generations, _choices(response = response)):
+            reasoning = _choice_reasoning(choice = choice)
+            if reasoning:
+                generation.message.additional_kwargs[REASONING_FIELD] = reasoning
+
+        return result
+
+
+def _choices(response: Any) -> list[Any]:
+    """
+    Достаёт варианты ответа сервера.
+
+    Аргументы:
+        response: ответ сервера словарём либо объектом клиента openai.
+
+    Возвращает:
+        Список вариантов ответа.
+    """
+    if isinstance(response, dict):
+        return list(response.get("choices") or [])
+
+    return list(getattr(response, "choices", None) or [])
+
+
+def _choice_reasoning(choice: Any) -> str:
+    """
+    Достаёт текст размышления из одного варианта ответа.
+
+    Аргументы:
+        choice: вариант ответа словарём либо объектом клиента openai.
+
+    Возвращает:
+        Текст размышления либо пустую строку.
+    """
+    message = choice.get("message") if isinstance(choice, dict) else getattr(choice, "message", None)
+    if message is None:
+        return ""
+
+    value = (message.get(REASONING_FIELD) if isinstance(message, dict)
+             else getattr(message, REASONING_FIELD, None))
+
+    return str(value).strip() if value else ""
 
 
 @lru_cache(maxsize = 8)
 def build_llm(
     role: NodeRole,
-    is_debug_reasoning_on: bool,
+    is_reasoning_forced: bool,
     model: str | None,
     provider: str = LLM_PROVIDER,
 ) -> ChatOpenAI:
@@ -155,8 +233,8 @@ def build_llm(
 
     Аргументы:
         role: характер работы узла, по нему берётся перекрытие из реестра ролей.
-        is_debug_reasoning_on: запросить текст размышления. Отладочный режим,
-            он накладывает ограничения на схему: docs/SO_with_reasoning.md.
+        is_reasoning_forced: включить размышление независимо от профиля модели
+            и роли узла. Отладочный режим для разбора поведения модели.
         model: имя модели. None - взять модель провайдера из окружения.
         provider: провайдер, по умолчанию из окружения.
 
@@ -168,16 +246,8 @@ def build_llm(
 
     settings: dict[str, Any] = profile.standard()
 
-    if is_debug_reasoning_on:
-        settings["reasoning"] = {
-            "effort": DEBUG_REASONING_EFFORT,
-            "summary": "detailed",
-        }
-        # Если есть reasoning = {"effort": "low"} → уходит на Responses API (устройство langchain).
-        # Оба параметра принадлежат /v1/chat/completions. На /v1/responses их нет
-        # Будет TypeError: Responses.create() got an unexpected keyword argument 'reasoning_effort'
-        settings.pop("reasoning_effort", None)
-        settings.pop("presence_penalty", None)
+    if is_reasoning_forced:
+        settings["reasoning_effort"] = FORCED_REASONING_EFFORT
 
     # Переменная окружения перебивает и профиль, и роль: она для замеров, когда
     # нужен один и тот же режим на всём прогоне.
@@ -188,7 +258,7 @@ def build_llm(
     if LLM_SEED:
         extra_body["seed"] = int(LLM_SEED)
 
-    return ChatOpenAI(
+    return ChatOpenAIWithReasoning(
         base_url = config.base_url,
         api_key = SecretStr(config.api_key),
         model = config.model,
@@ -200,8 +270,7 @@ def build_llm(
 
 
 # Поля клиента, которые уезжают в тело запроса. Список берём из профиля.
-# Поле reasoning профилю не принадлежит - его добавляет отладочный режим.
-_DESCRIBED_FIELDS = standard_field_names() + ("reasoning",)
+_DESCRIBED_FIELDS = standard_field_names()
 
 
 def describe_llm(llm: ChatOpenAI) -> str:
@@ -235,9 +304,7 @@ def reasoning_text(message: object) -> str:
     """
     Достаёт текст размышления из ответа модели.
 
-    Стандартное поле block["reasoning"] у локального сервера пустое: lm studio
-    отдаёт не сводку в формате openai, а сырой текст. Langchain его не теряет -
-    складывает в extras.content, откуда мы и берём.
+    Текст лежит в additional_kwargs: туда его кладёт ChatOpenAIWithReasoning.
 
     Аргументы:
         message: ответ модели.
@@ -245,17 +312,6 @@ def reasoning_text(message: object) -> str:
     Возвращает:
         Текст размышления либо пустую строку.
     """
-    blocks = getattr(message, "content_blocks", None) or []
-    parts: list[str] = []
+    extras = getattr(message, "additional_kwargs", None) or {}
 
-    for block in blocks:
-        if block.get("type") != "reasoning":
-            continue
-        if block.get("reasoning"):
-            parts.append(str(block["reasoning"]))
-            continue
-        for chunk in block.get("extras", {}).get("content", []):
-            if chunk.get("text"):
-                parts.append(str(chunk["text"]))
-
-    return "\n".join(parts).strip()
+    return str(extras.get(REASONING_FIELD, "")).strip()

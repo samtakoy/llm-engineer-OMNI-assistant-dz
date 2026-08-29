@@ -19,7 +19,7 @@ from assistant.persona import (
     describe_look,
     render_narrator_prompt,
 )
-from assistant.variables import VISION_MODEL, VISION_PROVIDER
+from assistant.variables import ENABLE_ALL_REASONING, VISION_MODEL, VISION_PROVIDER
 
 
 @dataclass(frozen = True)
@@ -63,7 +63,7 @@ def build_narrator_from_image(
     """
     vision_llm = build_llm(
         role = NodeRole.VISION,
-        is_debug_reasoning_on = False,
+        is_reasoning_forced = ENABLE_ALL_REASONING,
         model = VISION_MODEL,
         provider = VISION_PROVIDER,
     )
@@ -72,7 +72,11 @@ def build_narrator_from_image(
     if error:
         return "", None, "", error
 
-    writing_llm = build_llm(role = NodeRole.WRITING, is_debug_reasoning_on = False, model = None)
+    writing_llm = build_llm(
+        role = NodeRole.WRITING,
+        is_reasoning_forced = ENABLE_ALL_REASONING,
+        model = None,
+    )
 
 
     if persona_mode is PersonaMode.FREE:
