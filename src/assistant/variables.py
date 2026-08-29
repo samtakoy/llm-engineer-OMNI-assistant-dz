@@ -140,6 +140,12 @@ TRACE_DIR = _cache_directory(
     raw_path = os.getenv("TRACE_DIR", str(PROJECT_ROOT / "logs" / "traces")).strip()
 )
 
+# Каталог снимков состояния графа. Пустое значение выключает снимки, и тогда
+# прогон нельзя переиграть с середины.
+CHECKPOINT_DIR = _cache_directory(
+    raw_path = os.getenv("CHECKPOINT_DIR", str(PROJECT_ROOT / ".cache" / "checkpoints")).strip()
+)
+
 # Отладочный режим: включить размышление в фазе поиска и показать его текст.
 # Дороже примерно вчетверо по времени, поэтому по умолчанию выключен.
 SHOW_REASONING = os.getenv("SHOW_REASONING", "").strip().lower() in ("1", "true", "yes")

@@ -6,7 +6,6 @@
 """
 
 import logging
-from datetime import datetime
 from pathlib import Path
 from typing import Any
 
@@ -17,12 +16,19 @@ from assistant.observability.md_trace import MarkdownTrace, NoteHandler
 from assistant.variables import LLM_PROVIDER, SHOW_REASONING, TRACE_DIR
 
 
-def build_callbacks(node_rows: list[str]) -> list[BaseCallbackHandler]:
+def build_callbacks(
+    node_rows: list[str],
+    trace_id: str,
+    origin_rows: list[str],
+) -> list[BaseCallbackHandler]:
     """
     Собирает список слушателей для вызова графа.
 
     Аргументы:
         node_rows: описание моделей по узлам, строкой на узел; идёт в шапку.
+        trace_id: имя файла журнала без расширения.
+        origin_rows: строки о происхождении прогона; для продолжения - откуда
+            и с какого узла, для обычного прогона пустой список.
 
     Возвращает:
         Список слушателей. Пустой, если журнал выключен.
@@ -30,24 +36,37 @@ def build_callbacks(node_rows: list[str]) -> list[BaseCallbackHandler]:
     if TRACE_DIR is None:
         return []
 
-    return [_build_md_trace(directory = TRACE_DIR, node_rows = node_rows)]
+    return [
+        _build_md_trace(
+            directory = TRACE_DIR,
+            node_rows = node_rows,
+            trace_id = trace_id,
+            origin_rows = origin_rows,
+        )
+    ]
 
 
-def _build_md_trace(directory: Path, node_rows: list[str]) -> MarkdownTrace:
+def _build_md_trace(
+    directory: Path,
+    node_rows: list[str],
+    trace_id: str,
+    origin_rows: list[str],
+) -> MarkdownTrace:
     """
     Заводит журнал на текущий прогон и подключает к нему logging.
 
     Аргументы:
-        directory: каталог журналов; файл называется временем запуска.
+        directory: каталог журналов.
         node_rows: описание моделей по узлам.
+        trace_id: имя файла журнала без расширения.
+        origin_rows: строки о происхождении прогона.
 
     Возвращает:
         Готовый слушатель.
     """
-    stamp = datetime.now().strftime("%Y%m%d-%H%M%S")
     trace = MarkdownTrace(
-        path = directory / f"{stamp}.md",
-        header_rows = _header_rows(node_rows = node_rows),
+        path = directory / f"{trace_id}.md",
+        header_rows = [*origin_rows, *_header_rows(node_rows = node_rows)],
         describe_request = _describe_request,
         summarize_result = _summarize_result,
     )

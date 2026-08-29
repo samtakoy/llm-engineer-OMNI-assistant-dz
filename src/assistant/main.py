@@ -7,7 +7,14 @@ import argparse
 import sys
 from pathlib import Path
 
-from assistant.graph import describe_nodes
+from assistant.graph import (
+    RESUMABLE_NODES,
+    Answer,
+    ResearchNotes,
+    describe_nodes,
+    list_runs,
+    resume_research,
+)
 from assistant.integrations.listening import SILENCE_LEVEL, SpeechRecognizer, record
 from assistant.observability import setup_console_output
 from assistant.omni import run_omni_assistant
@@ -49,6 +56,22 @@ def build_parser() -> argparse.ArgumentParser:
         choices = [mode.value for mode in PersonaMode],
         default = PERSONA_MODE,
         help = "как строить рассказчика по фотографии: фразой или полями схемы",
+    )
+    parser.add_argument(
+        "--resume",
+        metavar = "ПРОГОН",
+        help = "переиграть записанный прогон; идентификатор совпадает с именем файла в logs/traces",
+    )
+    parser.add_argument(
+        "--from",
+        dest = "from_node",
+        choices = RESUMABLE_NODES,
+        help = "узел, с которого продолжить прогон; только вместе с --resume",
+    )
+    parser.add_argument(
+        "--list-runs",
+        action = "store_true",
+        help = "показать прогоны, которые можно переиграть, и выйти",
     )
     parser.add_argument(
         "--record",
@@ -143,6 +166,81 @@ def transcribe_file(audio_path: Path) -> str:
     return outcome.text
 
 
+def print_runs() -> None:
+    """
+    Печатает прогоны, которые можно переиграть.
+
+    Возвращает:
+        Ничего.
+    """
+    runs = list_runs()
+    if not runs:
+        print("Записанных прогонов нет.")
+        return
+
+    print("Прогоны, свежие первыми:")
+    for run_id, question in runs:
+        print(f"  {run_id}  {question}")
+
+
+def print_answer(answer: Answer, notes: ResearchNotes) -> None:
+    """
+    Печатает итоговый текст и опору, на которой он построен.
+
+    Аргументы:
+        answer: итоговый текст.
+        notes: фактическая опора.
+
+    Возвращает:
+        Ничего.
+    """
+    print(f"\n=== {answer.title} ===\n")
+    print(answer.intro)
+
+    for section in answer.sections:
+        print(f"\n## {section.title}\n")
+        print(section.content)
+
+    print(f"\n{answer.closing}")
+
+    print(f"\n--- опора ---\nуверенность: {notes.confidence}")
+    print("источники:")
+    for url in notes.sources:
+        print(f"  - {url}")
+
+
+def run_resume(arguments: argparse.Namespace) -> None:
+    """
+    Переигрывает записанный прогон с указанного узла.
+
+    Аргументы:
+        arguments: разобранные аргументы командной строки.
+
+    Возвращает:
+        Ничего. При неудаче завершает процесс кодом 1.
+    """
+    given = [arguments.question, arguments.audio, arguments.record, arguments.image]
+    if any(source is not None for source in given):
+        print("--resume не сочетается с вопросом, --audio, --record и --image.")
+        sys.exit(1)
+
+    if arguments.from_node is None:
+        print("К --resume нужен --from: с какого узла продолжать.")
+        sys.exit(1)
+
+    answer, notes, error = resume_research(
+        run_id = arguments.resume,
+        from_node = arguments.from_node,
+        narrator_prompt = arguments.narrator,
+    )
+
+    if error:
+        print(f"Переиграть прогон не вышло: {error}")
+        sys.exit(1)
+
+    print_answer(answer = answer, notes = notes)
+
+
 def main() -> None:
     """
     Разбирает аргументы командной строки и печатает ответ ресёрчера.
@@ -154,13 +252,21 @@ def main() -> None:
 
     arguments = build_parser().parse_args()
 
-    question = resolve_question(arguments = arguments)
-    if not question:
-        sys.exit(1)
+    if arguments.list_runs:
+        print_runs()
+        return
 
     print(f"[провайдер] {LLM_PROVIDER}")
     for line in describe_nodes():
         print(f"  {line}")
+
+    if arguments.resume:
+        run_resume(arguments = arguments)
+        return
+
+    question = resolve_question(arguments = arguments)
+    if not question:
+        sys.exit(1)
 
     if arguments.image and arguments.narrator:
         print("Рассказчик задаётся одним способом: --image или --narrator.")
@@ -177,21 +283,7 @@ def main() -> None:
         print(f"Разобрать фотографию не вышло: {outcome.error}")
         sys.exit(1)
 
-    answer, notes = outcome.answer, outcome.notes
-
-    print(f"\n=== {answer.title} ===\n")
-    print(answer.intro)
-
-    for section in answer.sections:
-        print(f"\n## {section.title}\n")
-        print(section.content)
-
-    print(f"\n{answer.closing}")
-
-    print(f"\n--- опора ---\nуверенность: {notes.confidence}")
-    print("источники:")
-    for url in notes.sources:
-        print(f"  - {url}")
+    print_answer(answer = outcome.answer, notes = outcome.notes)
 
 
 if __name__ == "__main__":

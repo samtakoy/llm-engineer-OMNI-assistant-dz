@@ -173,3 +173,20 @@ WEB_CACHE_BYPASS=1 .venv/bin/python -m assistant.main "вопрос"
 
 
 
+
+
+## Прогон с чекпоинта
+
+```
+# какие прогоны можно переиграть
+.venv/bin/python -m assistant.main --list-runs
+
+# переиграть изложение по собранным фактам
+.venv/bin/python -m assistant.main --resume 20260829-160711 --from compose
+
+# то же, но другим рассказчиком
+.venv/bin/python -m assistant.main --resume 20260829-160711 --from compose --narrator "добрый краевед"
+
+# пересобрать факты и изложение
+.venv/bin/python -m assistant.main --resume 20260829-160711 --from collect
+```

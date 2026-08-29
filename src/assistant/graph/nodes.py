@@ -14,11 +14,11 @@ from assistant.graph.budget import (
 )
 from assistant.graph.llms import build_agent_llm, build_collect_llm, build_compose_llm
 from assistant.graph.logs import (
-    log_narrator_style,
     log_answer,
     log_blocked_call,
     log_budget,
     log_decision,
+    log_narrator_style,
     log_notes,
     log_round,
 )
