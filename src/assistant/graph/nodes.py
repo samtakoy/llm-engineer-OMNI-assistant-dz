@@ -30,6 +30,11 @@ from assistant.graph.prompts import (
 )
 from assistant.graph.state import Answer, ResearchNotes, ResearchState
 from assistant.graph.tools import CALL_BLOCKED, RESEARCH_TOOLS
+from assistant.utils.caps import (
+    CAPS_SHARE_THRESHOLD,
+    build_case_reference,
+    normalize_caps,
+)
 
 # Исполнитель инструментов.
 _TOOL_EXECUTOR = ToolNode(RESEARCH_TOOLS)
@@ -190,6 +195,47 @@ def _as_list_block(items: list[str], empty_text: str) -> str:
     return "\n".join(f"- {item}" for item in items)
 
 
+def _without_caps(answer: Answer) -> Answer:
+    """Убирает капслок из заголовков и текста ответа."""
+
+    # Сборка словаря имен собственных
+    case_reference = build_case_reference(
+        text = "\n".join(
+            [
+                answer.title,
+                answer.intro,
+                *[f"{section.title}\n{section.content}" for section in answer.sections],
+                answer.closing,
+            ]
+        )
+    )
+
+    def normalize(text: str) -> str:
+        """Нормализует одну строку ответа общими образцами и порогом."""
+        return normalize_caps(
+            text = text,
+            case_reference = case_reference,
+            caps_threshold = CAPS_SHARE_THRESHOLD,
+        )
+
+    return answer.model_copy(
+        update = {
+            "title": normalize(text = answer.title),
+            "intro": normalize(text = answer.intro),
+            "sections": [
+                section.model_copy(
+                    update = {
+                        "title": normalize(text = section.title),
+                        "content": normalize(text = section.content),
+                    }
+                )
+                for section in answer.sections
+            ],
+            "closing": normalize(text = answer.closing),
+        }
+    )
+
+
 def compose_node(state: ResearchState) -> dict:
     """
     Излагает собранные факты в виде, который запросил пользователь.
@@ -237,6 +283,8 @@ def compose_node(state: ResearchState) -> dict:
             ),
         ]
     )
+
+    answer = _without_caps(answer = answer)
 
     log_narrator_style(narrator_prompt)
     log_answer(answer = answer)
