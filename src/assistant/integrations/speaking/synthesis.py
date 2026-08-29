@@ -13,6 +13,7 @@ SpeechSynthesizer отдаёт список голосов модели и оз�
 При неудаче возвращается исход с причиной, исключения наружу не уходят.
 """
 
+import logging
 import wave
 from pathlib import Path
 from typing import Any
@@ -22,6 +23,9 @@ from .effects import apply_effect
 from .markup import sanitize_markup, wrap_speech_parts
 from .outcomes import SynthesisOutcome
 from .voices import VoiceSettings
+
+logger = logging.getLogger(__name__)
+
 
 # Откуда torch.hub берёт код silero и файл весов.
 _HUB_REPOSITORY = "snakers4/silero-models"
@@ -98,11 +102,12 @@ class SpeechSynthesizer:
             )
 
         ssml = self._prepare_ssml(text = spoken_text, settings = settings)
+        logger.info(f"[speaking] в синтез: {ssml if ssml is not None else spoken_text}")
 
         try:
             audio = self._apply_tts(model = model, text = spoken_text, ssml = ssml, settings = settings)
         except Exception as error:
-            print(f"[speaking] озвучка не удалась: {type(error).__name__}: {error}")
+            logger.warning(f"[speaking] озвучка не удалась: {type(error).__name__}: {error}")
             if ssml is None:
                 return SynthesisOutcome(
                     path = None,
@@ -110,12 +115,12 @@ class SpeechSynthesizer:
                     seconds = 0.0,
                 )
 
-            print(f"[speaking] разметка: {ssml}")
-            print("[speaking] повтор чистым текстом")
+            logger.warning(f"[speaking] разметка: {ssml}")
+            logger.warning("[speaking] повтор чистым текстом")
             try:
                 audio = self._apply_tts(model = model, text = spoken_text, ssml = None, settings = settings)
             except Exception as repeat_error:
-                print(f"[speaking] повтор не удался: {type(repeat_error).__name__}: {repeat_error}")
+                logger.warning(f"[speaking] повтор не удался: {type(repeat_error).__name__}: {repeat_error}")
                 return SynthesisOutcome(
                     path = None,
                     error = f"озвучка оборвалась: {type(repeat_error).__name__}",
@@ -210,7 +215,7 @@ class SpeechSynthesizer:
                 target.setframerate(self._config.sample_rate)
                 target.writeframes(samples.numpy().tobytes())
         except Exception as error:
-            print(f"[speaking] звук не сохранился: {type(error).__name__}: {error}")
+            logger.warning(f"[speaking] звук не сохранился: {type(error).__name__}: {error}")
             return "файл со звуком не сохранился"
 
         return ""
@@ -231,7 +236,7 @@ class SpeechSynthesizer:
         except (ImportError, OSError) as error:
             # OSError наравне с ImportError: torch подгружает свои бинарники на
             # импорте и без них падает именно так.
-            print(f"[speaking] библиотека torch недоступна: {type(error).__name__}: {error}")
+            logger.warning(f"[speaking] библиотека torch недоступна: {type(error).__name__}: {error}")
             return None, "библиотека синтеза недоступна"
 
         if self._config.hub_directory is not None:
@@ -239,7 +244,7 @@ class SpeechSynthesizer:
             torch.hub.set_dir(str(self._config.hub_directory))
 
         device = _resolve_device(torch = torch, device = self._config.device)
-        print(f"[speaking] загрузка модели {self._config.model_id} ({device})")
+        logger.info(f"[speaking] загрузка модели {self._config.model_id} ({device})")
 
         try:
             model, _example_text = torch.hub.load(
@@ -251,7 +256,7 @@ class SpeechSynthesizer:
             )
             model.to(torch.device(device))
         except Exception as error:
-            print(f"[speaking] модель не загрузилась: {type(error).__name__}: {error}")
+            logger.warning(f"[speaking] модель не загрузилась: {type(error).__name__}: {error}")
             return None, f"модель {self._config.model_id} не загрузилась"
 
         # На пути ssml модель зовёт convert_to_orig без проверки ext_alph на None,

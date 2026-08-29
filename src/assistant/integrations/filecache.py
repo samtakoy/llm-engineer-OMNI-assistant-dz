@@ -22,9 +22,12 @@
 
 import hashlib
 import json
+import logging
 from datetime import datetime, timedelta
 from pathlib import Path
 from typing import Any
+
+logger = logging.getLogger(__name__)
 
 
 class FileCache:
@@ -69,7 +72,7 @@ class FileCache:
             record = json.loads(path.read_text(encoding = "utf-8"))
         except Exception as error:
             # Битую запись лечит повторное обращение к сети, а не разбор причины.
-            print(f"[cache] запись не прочитана {path.name}: {type(error).__name__}: {error}")
+            logger.warning(f"[cache] запись не прочитана {path.name}: {type(error).__name__}: {error}")
             return None
 
         if not isinstance(record, dict) or record.get("version") != self._record_version:
@@ -109,7 +112,7 @@ class FileCache:
             temporary.write_text(json.dumps(record, ensure_ascii = False), encoding = "utf-8")
             temporary.replace(path)
         except Exception as error:
-            print(f"[cache] запись не сохранена {key}: {type(error).__name__}: {error}")
+            logger.warning(f"[cache] запись не сохранена {key}: {type(error).__name__}: {error}")
 
     def _entry_path(self, key: str) -> Path:
         """

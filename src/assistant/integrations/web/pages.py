@@ -10,6 +10,7 @@
 """
 
 import ipaddress
+import logging
 import socket
 import ssl
 from urllib.parse import urlparse
@@ -20,6 +21,9 @@ import trafilatura
 from ..filecache import FileCache, open_cache
 from .config import WebConfig
 from .outcomes import PageOutcome, ServiceFailure
+
+logger = logging.getLogger(__name__)
+
 
 # Версия формата записи о странице. Двигается независимо от записи о выдаче.
 _RECORD_VERSION = 1
@@ -55,14 +59,14 @@ def fetch_page(url: str, max_characters: int, config: WebConfig) -> PageOutcome:
     parsed = urlparse(url)
 
     if parsed.scheme not in ("http", "https"):
-        print(f"[web] пропуск {url}: схема {parsed.scheme!r} не поддерживается")
+        logger.warning(f"[web] пропуск {url}: схема {parsed.scheme!r} не поддерживается")
         return PageOutcome(
             text = "",
             failure = None,
             empty_reason = f"схема {parsed.scheme!r} не поддерживается",
         )
     if not parsed.hostname:
-        print(f"[web] пропуск {url}: в адресе нет хоста")
+        logger.warning(f"[web] пропуск {url}: в адресе нет хоста")
         return PageOutcome(text = "", failure = None, empty_reason = "в адресе нет хоста")
 
     cache = open_cache(
@@ -75,7 +79,7 @@ def fetch_page(url: str, max_characters: int, config: WebConfig) -> PageOutcome:
     if cache is not None and not config.bypass_cache:
         cached_text = _cached_text(cache = cache, url = url)
         if cached_text:
-            print(f"[web] текст {url} взят из кеша: {len(cached_text)} символов")
+            logger.info(f"[web] текст {url} взят из кеша: {len(cached_text)} символов")
             return PageOutcome(
                 text = _truncated(text = cached_text, max_characters = max_characters),
                 failure = None,
@@ -83,7 +87,7 @@ def fetch_page(url: str, max_characters: int, config: WebConfig) -> PageOutcome:
             )
 
     if _is_blocked_host(host = parsed.hostname):
-        print(f"[web] пропуск {url}: хост ведёт во внутреннюю сеть")
+        logger.warning(f"[web] пропуск {url}: хост ведёт во внутреннюю сеть")
         return PageOutcome(
             text = "",
             failure = None,
@@ -127,7 +131,7 @@ def _fetch_online(url: str, config: WebConfig) -> PageOutcome:
 
                 content_type = response.headers.get("content-type", "")
                 if "html" not in content_type.lower():
-                    print(f"[web] пропуск {url}: тип содержимого {content_type!r}")
+                    logger.warning(f"[web] пропуск {url}: тип содержимого {content_type!r}")
                     return PageOutcome(
                         text = "",
                         failure = None,
@@ -143,7 +147,7 @@ def _fetch_online(url: str, config: WebConfig) -> PageOutcome:
 
                 html = b"".join(chunks).decode(response.encoding or "utf-8", errors = "replace")
     except httpx.HTTPError as error:
-        print(f"[web] не удалось скачать {url}: {type(error).__name__}: {error}")
+        logger.warning(f"[web] не удалось скачать {url}: {type(error).__name__}: {error}")
         return PageOutcome(
             text = "",
             failure = _describe_http_failure(error = error),
@@ -152,7 +156,7 @@ def _fetch_online(url: str, config: WebConfig) -> PageOutcome:
 
     text = trafilatura.extract(html, include_comments = False, include_tables = False)
     if not text:
-        print(f"[web] из {url} не извлёкся текст")
+        logger.warning(f"[web] из {url} не извлёкся текст")
         return PageOutcome(
             text = "",
             failure = None,

@@ -10,11 +10,15 @@
 короче, чем у страниц, и обход кеша через настройку.
 """
 
+import logging
 import re
 
 from ..filecache import FileCache, open_cache
 from .config import WebConfig
 from .outcomes import SearchOutcome, SearchResult, ServiceFailure
+
+logger = logging.getLogger(__name__)
+
 
 # Версия формата записи о выдаче. Двигается независимо от записи о странице.
 _RECORD_VERSION = 1
@@ -50,7 +54,7 @@ def search(query: str, max_results: int, config: WebConfig) -> SearchOutcome:
     if cache is not None and not config.bypass_cache:
         results = _cached_results(cache = cache, key = key, max_results = max_results)
         if results is not None:
-            print(f"[web] выдача по «{query}» взята из кеша: {len(results)} позиций")
+            logger.info(f"[web] выдача по «{query}» взята из кеша: {len(results)} позиций")
             return SearchOutcome(results = results, failure = None)
 
     outcome = _search_online(query = query, max_results = max_results)
@@ -80,7 +84,7 @@ def _search_online(query: str, max_results: int) -> SearchOutcome:
         from ddgs import DDGS
         from ddgs.exceptions import DDGSException, RatelimitException, TimeoutException
     except ImportError as error:
-        print(f"[web] библиотека ddgs недоступна: {error}")
+        logger.warning(f"[web] библиотека ddgs недоступна: {error}")
         return SearchOutcome(
             results = [],
             failure = ServiceFailure(
@@ -94,10 +98,10 @@ def _search_online(query: str, max_results: int) -> SearchOutcome:
             items = list(ddgs.text(query, max_results = max_results))
     except DDGSException as error:
         if _is_empty_results_error(error = error):
-            print(f"[web] по запросу «{query}» ничего не нашлось")
+            logger.warning(f"[web] по запросу «{query}» ничего не нашлось")
             return SearchOutcome(results = [], failure = None)
 
-        print(f"[web] поиск «{query}» не удался: {type(error).__name__}: {error}")
+        logger.warning(f"[web] поиск «{query}» не удался: {type(error).__name__}: {error}")
 
         if isinstance(error, TimeoutException):
             reason = "поисковик не ответил вовремя"
@@ -111,7 +115,7 @@ def _search_online(query: str, max_results: int) -> SearchOutcome:
             failure = ServiceFailure(reason = reason, is_temporary = True),
         )
     except Exception as error:
-        print(f"[web] поиск «{query}» не удался: {type(error).__name__}: {error}")
+        logger.warning(f"[web] поиск «{query}» не удался: {type(error).__name__}: {error}")
         return SearchOutcome(
             results = [],
             failure = ServiceFailure(

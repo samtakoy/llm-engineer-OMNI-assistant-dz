@@ -191,11 +191,12 @@ WEB_CACHE_BYPASS=1 .venv/bin/python -m assistant.main "вопрос"
 ## Голос на выходе
 
 ```
-# экскурсия голосом персонажа с фотографии
+# экскурсия голосом персонажа с фотографии; текст перед озвучкой размечается
+# паузами и ударениями
 .venv/bin/python -m assistant.main "экскурсия по горе машук для детей 7-8 лет" --image docs/persona_images/hulk/images.jpeg --persona-mode structured --speak
 
-# то же, но текст перед озвучкой размечается паузами и ударениями
-.venv/bin/python -m assistant.main "экскурсия по горе машук для детей 7-8 лет" --image docs/persona_images/hulk/images.jpeg --persona-mode structured --speak --markup
+# то же, но без разметки: озвучка идёт чистым текстом
+.venv/bin/python -m assistant.main "экскурсия по горе машук для детей 7-8 лет" --image docs/persona_images/hulk/images.jpeg --persona-mode structured --speak --no-markup
 
 # без фотографии: первый голос модели, нейтральные темп и высота
 .venv/bin/python -m assistant.main "Когда вышел Django 6.0?" --speak

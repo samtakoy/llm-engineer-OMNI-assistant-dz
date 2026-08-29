@@ -15,6 +15,7 @@ from pathlib import Path
 from assistant.integrations.llm.client import build_llm
 from assistant.integrations.llm.profiles import NodeRole
 from assistant.integrations.speaking import SpeechSynthesizer, VoiceSettings, sanitize_markup
+from assistant.observability import setup_console_output
 from assistant.persona import build_persona, describe_look, mark_up_speech, pick_voice
 from assistant.variables import SPEAKING_CONFIG, SPOKEN_PATH, VISION_MODEL, VISION_PROVIDER
 
@@ -57,6 +58,7 @@ def main() -> None:
     Возвращает:
         Ничего.
     """
+    setup_console_output()
     parser = argparse.ArgumentParser(description = "Проверка разметки речи персонажем")
     parser.add_argument("image", help = "фотография персонажа")
     parser.add_argument("text", help = "фраза для озвучки")
@@ -74,13 +76,17 @@ def main() -> None:
         model = VISION_MODEL,
         provider = VISION_PROVIDER,
     )
-    look, error = describe_look(llm = vision_llm, image_path = Path(arguments.image))
+    look, error = describe_look(
+        llm = vision_llm,
+        image_path = Path(arguments.image),
+        callbacks = [],
+    )
     if error:
         print(f"Облик не разобран: {error}")
         return
 
     writing_llm = build_llm(role = NodeRole.WRITING, is_reasoning_forced = False, model = None)
-    persona, error = build_persona(llm = writing_llm, look = look)
+    persona, error = build_persona(llm = writing_llm, look = look, callbacks = [])
     if error:
         print(f"Персонаж не собран: {error}")
         return
@@ -88,7 +94,12 @@ def main() -> None:
     print(f"[персонаж] {persona.name} ({persona.gender}), манера: {persona.speech_manner}\n")
 
     extraction_llm = build_llm(role = NodeRole.EXTRACTION, is_reasoning_forced = False, model = None)
-    settings, error = pick_voice(llm = extraction_llm, persona = persona, speakers = speakers)
+    settings, error = pick_voice(
+        llm = extraction_llm,
+        persona = persona,
+        speakers = speakers,
+        callbacks = [],
+    )
     if error:
         print(f"Голос не подобран: {error}")
         return
@@ -98,7 +109,12 @@ def main() -> None:
         f"эффект {settings.effect} ({settings.effect_strength})\n"
     )
 
-    marked, error = mark_up_speech(llm = writing_llm, persona = persona, text = arguments.text)
+    marked, error = mark_up_speech(
+        llm = writing_llm,
+        persona = persona,
+        text = arguments.text,
+        callbacks = [],
+    )
     if error:
         print(f"Разметка не получена: {error}")
         return

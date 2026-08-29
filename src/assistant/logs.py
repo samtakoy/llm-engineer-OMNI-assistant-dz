@@ -1,5 +1,6 @@
 """
-Ход прогона вне графа в журнал: облик, рассказчик, голос, разметка, озвучка.
+Ход прогона вне графа в журнал: вопрос, облик, рассказчик, голос, разметка,
+озвучка.
 
 Строки идут в logging под именем модуля; куда их показать, решает настройка
 вывода в пакете observability. Журнал прогона слушает тот же логгер, поэтому
@@ -14,6 +15,49 @@ from assistant.persona import Persona
 from assistant.timing import Stopwatch
 
 logger = logging.getLogger(__name__)
+
+
+def log_recording(path: Path, seconds: float, peak_level: float) -> None:
+    """
+    Пишет готовую запись с микрофона.
+
+    Аргументы:
+        path: файл с записью.
+        seconds: длительность записи.
+        peak_level: громкость самого громкого отсчёта, от нуля до единицы.
+
+    Возвращает:
+        Ничего.
+    """
+    logger.info(f"[запись] {path} - {seconds:.1f} с, громкость {peak_level:.2f}")
+
+
+def log_recording_silent() -> None:
+    """
+    Пишет, что в записи тишина, и что проверить.
+
+    Возвращает:
+        Ничего.
+    """
+    logger.info(
+        "[запись] в файле тишина. На macOS проверьте разрешение на микрофон "
+        "у терминала в настройках приватности и выбранное устройство ввода."
+    )
+
+
+def log_question(question: str, is_from_cache: bool) -> None:
+    """
+    Пишет распознанный вопрос.
+
+    Аргументы:
+        question: текст вопроса.
+        is_from_cache: расшифровка взята из кеша, а не посчитана заново.
+
+    Возвращает:
+        Ничего.
+    """
+    source = "из кеша" if is_from_cache else "распознано"
+    logger.info(f"[вопрос] {source}: {question}")
 
 
 def log_look(look: str) -> None:

@@ -29,6 +29,7 @@ from assistant.integrations.speaking import (
     VoiceSettings,
     available_effects,
 )
+from assistant.observability import setup_console_output
 from assistant.variables import SPEAKING_CONFIG, SPOKEN_PATH
 
 RATE_VALUES = ("x-slow", "slow", "medium", "fast", "x-fast")
@@ -110,6 +111,7 @@ def main() -> None:
     Возвращает:
         Ничего.
     """
+    setup_console_output()
     parser = argparse.ArgumentParser(description = "Проверка синтеза речи на строке")
     parser.add_argument("text", nargs = "?", help = "текст для озвучки")
     parser.add_argument("--speaker", default = "", help = "имя голоса из версии модели")

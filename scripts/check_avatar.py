@@ -47,6 +47,7 @@ from pydantic import BaseModel, Field
 
 from assistant.integrations.llm.client import build_llm
 from assistant.integrations.llm.profiles import NodeRole
+from assistant.observability import setup_console_output
 from assistant.persona import describe_look
 from assistant.variables import PROJECT_ROOT, VISION_MODEL, VISION_PROVIDER
 
@@ -153,7 +154,7 @@ def collect_looks(llm: ChatOpenAI, images: list[Path]) -> dict[Path, str]:
 
     for image_path in images:
         started = time.monotonic()
-        look, error = describe_look(llm = llm, image_path = image_path)
+        look, error = describe_look(llm = llm, image_path = image_path, callbacks = [])
         spent_seconds = time.monotonic() - started
 
         if error:
@@ -400,6 +401,7 @@ def main() -> None:
     Возвращает:
         Ничего.
     """
+    setup_console_output()
     parser = argparse.ArgumentParser(description = "Проверка цепочки облик - промпт - аватарка")
     parser.add_argument("path", help = "файл с картинкой или каталог с картинками")
     parser.add_argument("--limit", type = int, default = 0, help = "сколько взять; ноль - все")

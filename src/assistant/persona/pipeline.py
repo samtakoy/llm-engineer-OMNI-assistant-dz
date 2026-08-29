@@ -5,8 +5,10 @@
 """
 
 import hashlib
+import logging
 from pathlib import Path
 
+from langchain_core.callbacks import BaseCallbackHandler
 from langchain_core.messages import HumanMessage, SystemMessage
 from langchain_openai import ChatOpenAI
 
@@ -21,6 +23,9 @@ from ..variables import (
 )
 from .prompts import LOOK_PROMPT, NARRATOR_STYLE_PROMPT, PERSONA_PROMPT
 from .schemas import Persona
+
+logger = logging.getLogger(__name__)
+
 
 # Подкаталог кеша и версия формата записи. Версия поднимается при смене
 # состава полей записи.
@@ -58,7 +63,7 @@ def _cache_key(image_path: Path, model_name: str, prompt: str) -> str:
             while chunk := stream.read(_FINGERPRINT_CHUNK_BYTES):
                 digest.update(chunk)
     except OSError as error:
-        print(f"[персона] отпечаток {image_path.name} не снялся: {type(error).__name__}: {error}")
+        logger.warning(f"[персона] отпечаток {image_path.name} не снялся: {type(error).__name__}: {error}")
         return ""
 
     prompt_fingerprint = hashlib.sha1(prompt.encode("utf-8")).hexdigest()[:_PROMPT_FINGERPRINT_LENGTH]
@@ -66,7 +71,11 @@ def _cache_key(image_path: Path, model_name: str, prompt: str) -> str:
     return f"{digest.hexdigest()}|{model_name}|{prompt_fingerprint}"
 
 
-def describe_look(llm: ChatOpenAI, image_path: Path) -> tuple[str, str]:
+def describe_look(
+    llm: ChatOpenAI,
+    image_path: Path,
+    callbacks: list[BaseCallbackHandler],
+) -> tuple[str, str]:
     """
     Разбирает фотографию персонажа и возвращает облик текстом.
 
@@ -75,6 +84,7 @@ def describe_look(llm: ChatOpenAI, image_path: Path) -> tuple[str, str]:
     Аргументы:
         llm: клиент модели, принимающей картинки.
         image_path: файл с фотографией персонажа.
+        callbacks: слушатели прогона; журнал заводит вызывающий.
 
     Возвращает:
         Пару «описание облика, причина неудачи». При успехе причина пустая, при
@@ -91,6 +101,7 @@ def describe_look(llm: ChatOpenAI, image_path: Path) -> tuple[str, str]:
     if key and cache is not None and not VISION_CACHE_BYPASS:
         record = cache.read(key = key)
         if record is not None and record.get("look"):
+            logger.info(f"[зрение] облик {image_path.name} взят из кеша, модель не звалась")
             return record["look"], ""
 
     image_url, error = image_data_url(
@@ -105,6 +116,7 @@ def describe_look(llm: ChatOpenAI, image_path: Path) -> tuple[str, str]:
         llm = llm,
         image_url = image_url,
         instruction = LOOK_PROMPT,
+        callbacks = callbacks,
     )
     if error:
         return "", error
@@ -115,13 +127,18 @@ def describe_look(llm: ChatOpenAI, image_path: Path) -> tuple[str, str]:
     return look, ""
 
 
-def build_persona(llm: ChatOpenAI, look: str) -> tuple[Persona | None, str]:
+def build_persona(
+    llm: ChatOpenAI,
+    look: str,
+    callbacks: list[BaseCallbackHandler],
+) -> tuple[Persona | None, str]:
     """
     Придумывает рассказчика по описанию облика.
 
     Аргументы:
         llm: клиент текстовой модели.
         look: описание облика персонажа.
+        callbacks: слушатели прогона; журнал заводит вызывающий.
 
     Возвращает:
         Пару «персонаж, причина неудачи». При успехе причина пустая, при
@@ -137,22 +154,28 @@ def build_persona(llm: ChatOpenAI, look: str) -> tuple[Persona | None, str]:
             [
                 SystemMessage(content = PERSONA_PROMPT),
                 HumanMessage(content = f"Описание облика:\n{look}"),
-            ]
+            ],
+            config = {"callbacks": callbacks},
         )
     except Exception as error:
-        print(f"[персона] вызов модели не удался: {type(error).__name__}: {error}")
+        logger.warning(f"[персона] вызов модели не удался: {type(error).__name__}: {error}")
         return None, f"модель не ответила по схеме: {type(error).__name__}"
 
     return persona, ""
 
 
-def build_narrator_style(llm: ChatOpenAI, look: str) -> tuple[str, str]:
+def build_narrator_style(
+    llm: ChatOpenAI,
+    look: str,
+    callbacks: list[BaseCallbackHandler],
+) -> tuple[str, str]:
     """
     Сжимает описание облика до одной фразы про голос рассказчика.
 
     Аргументы:
         llm: клиент текстовой модели.
         look: описание облика персонажа.
+        callbacks: слушатели прогона; журнал заводит вызывающий.
 
     Возвращает:
         Пару «фраза, причина неудачи». При успехе причина пустая, при неудаче
@@ -166,10 +189,11 @@ def build_narrator_style(llm: ChatOpenAI, look: str) -> tuple[str, str]:
             [
                 SystemMessage(content = NARRATOR_STYLE_PROMPT),
                 HumanMessage(content = f"Описание облика:\n{look}"),
-            ]
+            ],
+            config = {"callbacks": callbacks},
         )
     except Exception as error:
-        print(f"[персона] вызов модели не удался: {type(error).__name__}: {error}")
+        logger.warning(f"[персона] вызов модели не удался: {type(error).__name__}: {error}")
         return "", f"модель не ответила: {type(error).__name__}"
 
     style = message.text.strip()

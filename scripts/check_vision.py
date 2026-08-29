@@ -30,6 +30,7 @@ from langchain_openai import ChatOpenAI
 from assistant.integrations.llm.client import build_llm
 from assistant.integrations.llm.profiles import NodeRole
 from assistant.integrations.llm.vision import describe_image, image_data_url
+from assistant.observability import setup_console_output
 from assistant.variables import (
     VISION_JPEG_QUALITY,
     VISION_MAX_SIDE,
@@ -131,6 +132,7 @@ def check_image(llm: ChatOpenAI, image_path: Path) -> None:
         llm = llm,
         image_url = image_url,
         instruction = LOOK_PROMPT,
+        callbacks = [],
     )
     spent_seconds = time.monotonic() - started
 
@@ -149,6 +151,7 @@ def main() -> None:
     Возвращает:
         Ничего.
     """
+    setup_console_output()
     parser = argparse.ArgumentParser(description = "Проверка сервиса зрения на картинках")
     parser.add_argument("path", help = "файл с картинкой или каталог с картинками")
     parser.add_argument("--limit", type = int, default = 0, help = "сколько взять; ноль - все")

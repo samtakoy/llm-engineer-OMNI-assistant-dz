@@ -7,6 +7,9 @@ pick_voice отдаёт VoiceSettings: имя голоса из переданн
 Наружу исключения не уходят - причина возвращается второй половиной пары.
 """
 
+import logging
+
+from langchain_core.callbacks import BaseCallbackHandler
 from langchain_core.messages import HumanMessage, SystemMessage
 from langchain_openai import ChatOpenAI
 
@@ -15,11 +18,14 @@ from .narrator import render_narrator_prompt
 from .prompts import VOICE_PROMPT
 from .schemas import Persona
 
+logger = logging.getLogger(__name__)
+
 
 def pick_voice(
     llm: ChatOpenAI,
     persona: Persona,
     speakers: list[str],
+    callbacks: list[BaseCallbackHandler],
 ) -> tuple[VoiceSettings | None, str]:
     """
     Подбирает голос, темп, высоту речи и звуковой эффект под характер персонажа.
@@ -32,6 +38,7 @@ def pick_voice(
         llm: клиент текстовой модели.
         persona: рассказчик, выведенный из облика.
         speakers: имена голосов, которые знает модель синтеза.
+        callbacks: слушатели прогона; журнал заводит вызывающий.
 
     Возвращает:
         Пару «настройки голоса, причина неудачи». При успехе причина пустая,
@@ -55,20 +62,21 @@ def pick_voice(
             [
                 SystemMessage(content = VOICE_PROMPT),
                 HumanMessage(content = request),
-            ]
+            ],
+            config = {"callbacks": callbacks},
         )
     except Exception as error:
-        print(f"[персона] вызов модели не удался: {type(error).__name__}: {error}")
+        logger.warning(f"[персона] вызов модели не удался: {type(error).__name__}: {error}")
         return None, f"модель не ответила по схеме: {type(error).__name__}"
 
     corrections: dict[str, str] = {}
 
     if settings.speaker not in speakers:
-        print(f"[персона] голоса {settings.speaker} нет в списке, берётся {speakers[0]}")
+        logger.info(f"[персона] голоса {settings.speaker} нет в списке, берётся {speakers[0]}")
         corrections["speaker"] = speakers[0]
 
     if settings.effect not in catalog:
-        print(f"[персона] эффекта {settings.effect} нет в реестре, берётся {NO_EFFECT}")
+        logger.info(f"[персона] эффекта {settings.effect} нет в реестре, берётся {NO_EFFECT}")
         corrections["effect"] = NO_EFFECT
 
     if corrections:

@@ -16,14 +16,10 @@ from assistant.graph import (
     new_run_id,
     resume_research,
 )
-from assistant.integrations.listening import SILENCE_LEVEL, SpeechRecognizer, record
 from assistant.observability import setup_console_output, trace_run
-from assistant.omni import OmniOutcome, run_omni_assistant
+from assistant.omni import RECORD_UNTIL_ENTER, OmniOutcome, run_omni_assistant
 from assistant.persona import PersonaMode
-from assistant.variables import LISTENING_CONFIG, LLM_PROVIDER, PERSONA_MODE
-
-# Значение --record без числа: писать до нажатия Enter.
-_RECORD_UNTIL_ENTER = 0.0
+from assistant.variables import LLM_PROVIDER, PERSONA_MODE
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -65,8 +61,9 @@ def build_parser() -> argparse.ArgumentParser:
     )
     parser.add_argument(
         "--markup",
-        action = "store_true",
-        help = "перед озвучкой разметить текст паузами и ударениями; только с --speak",
+        action = argparse.BooleanOptionalAction,
+        default = True,
+        help = "перед озвучкой размечать текст паузами и ударениями; только с --speak",
     )
     parser.add_argument(
         "--resume",
@@ -87,7 +84,7 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument(
         "--record",
         nargs = "?",
-        const = _RECORD_UNTIL_ENTER,
+        const = RECORD_UNTIL_ENTER,
         type = float,
         metavar = "СЕКУНДЫ",
         help = "записать вопрос с микрофона; без числа - до нажатия Enter",
@@ -95,86 +92,25 @@ def build_parser() -> argparse.ArgumentParser:
     return parser
 
 
-def resolve_question(arguments: argparse.Namespace) -> str:
+def check_question_sources(arguments: argparse.Namespace) -> str:
     """
-    Достаёт текст вопроса из аргументов: как есть, из файла или с микрофона.
+    Проверяет, что вопрос задан ровно одним источником.
 
     Аргументы:
         arguments: разобранные аргументы командной строки.
 
     Возвращает:
-        Текст вопроса либо пустую строку, если получить его не вышло. Причина
-        при этом уже напечатана.
+        Причину отказа либо пустую строку, если источник ровно один.
     """
     sources = [arguments.question, arguments.audio, arguments.record]
     given = [source for source in sources if source is not None]
 
     if not given:
-        print("Нужен вопрос: текстом, файлом --audio или записью --record.")
-        return ""
+        return "Нужен вопрос: текстом, файлом --audio или записью --record."
     if len(given) > 1:
-        print("Вопрос задаётся одним способом: текстом, --audio или --record.")
-        return ""
+        return "Вопрос задаётся одним способом: текстом, --audio или --record."
 
-    if arguments.question is not None:
-        return arguments.question
-
-    if arguments.audio is not None:
-        return transcribe_file(audio_path = Path(arguments.audio))
-
-    return transcribe_recording(seconds = arguments.record)
-
-
-def transcribe_recording(seconds: float) -> str:
-    """
-    Пишет вопрос с микрофона и распознаёт его.
-
-    Аргументы:
-        seconds: сколько секунд писать; ноль и меньше - до нажатия Enter.
-
-    Возвращает:
-        Текст вопроса либо пустую строку, если запись или распознавание не
-        удались.
-    """
-    outcome = record(
-        seconds = None if seconds <= _RECORD_UNTIL_ENTER else seconds,
-        config = LISTENING_CONFIG,
-    )
-
-    if outcome.error or outcome.path is None:
-        print(f"Записать не вышло: {outcome.error}")
-        return ""
-
-    print(f"[запись] {outcome.path} - {outcome.seconds:.1f} с, громкость {outcome.peak_level:.2f}")
-    if outcome.peak_level < SILENCE_LEVEL:
-        print(
-            "[запись] в файле тишина. На macOS проверьте разрешение на микрофон "
-            "у терминала в настройках приватности и выбранное устройство ввода."
-        )
-
-    return transcribe_file(audio_path = outcome.path)
-
-
-def transcribe_file(audio_path: Path) -> str:
-    """
-    Распознаёт запись из файла.
-
-    Аргументы:
-        audio_path: файл с записью вопроса.
-
-    Возвращает:
-        Текст вопроса либо пустую строку, если распознать не вышло.
-    """
-    recognizer = SpeechRecognizer(config = LISTENING_CONFIG)
-    outcome = recognizer.transcribe(audio_path = audio_path)
-
-    if outcome.error:
-        print(f"Распознать не вышло: {outcome.error}")
-        return ""
-
-    source = "из кеша" if outcome.from_cache else "распознано"
-    print(f"[вопрос] {source}: {outcome.text}")
-    return outcome.text
+    return ""
 
 
 def print_runs() -> None:
@@ -309,8 +245,9 @@ def main() -> None:
         run_resume(arguments = arguments)
         return
 
-    question = resolve_question(arguments = arguments)
-    if not question:
+    refusal = check_question_sources(arguments = arguments)
+    if refusal:
+        print(refusal)
         sys.exit(1)
 
     if arguments.image and arguments.narrator:
@@ -321,13 +258,15 @@ def main() -> None:
         image_path = Path(arguments.image) if arguments.image else None,
         narrator_style = arguments.narrator,
         persona_mode = PersonaMode(arguments.persona_mode),
-        question = question,
+        question_text = arguments.question,
+        audio_path = Path(arguments.audio) if arguments.audio else None,
+        record_seconds = arguments.record,
         is_speech_on = arguments.speak,
         is_markup_on = arguments.markup,
     )
 
     if outcome.error:
-        print(f"Разобрать фотографию не вышло: {outcome.error}")
+        print(f"Прогон не удался: {outcome.error}")
         sys.exit(1)
 
     print_answer(answer = outcome.answer, notes = outcome.notes)

@@ -13,6 +13,7 @@
 устройства ввода - всё это возвращается причиной в исходе.
 """
 
+import logging
 import wave
 from datetime import datetime
 from pathlib import Path
@@ -21,6 +22,9 @@ from typing import Any
 
 from .config import ListeningConfig
 from .outcomes import RecordingOutcome
+
+logger = logging.getLogger(__name__)
+
 
 # Ширина отсчёта: пишем в int16, так же его понимает wave и любой декодер.
 _SAMPLE_WIDTH_BYTES = 2
@@ -49,7 +53,7 @@ def record(seconds: float | None, config: ListeningConfig) -> RecordingOutcome:
         # OSError, а не только ImportError: колёса sounddevice для linux идут без
         # portaudio, и на импорте он ищет системную библиотеку. Нет её - импорт
         # падает OSError, и без этой ветки запись роняла бы прогон.
-        print(f"[speech] запись недоступна: {type(error).__name__}: {error}")
+        logger.warning(f"[speech] запись недоступна: {type(error).__name__}: {error}")
         return RecordingOutcome(
             path = None,
             error = "библиотека записи недоступна: нет sounddevice или portaudio",
@@ -71,7 +75,7 @@ def record(seconds: float | None, config: ListeningConfig) -> RecordingOutcome:
                 sample_rate = config.recording_sample_rate,
             )
     except Exception as error:
-        print(f"[speech] запись не удалась: {type(error).__name__}: {error}")
+        logger.warning(f"[speech] запись не удалась: {type(error).__name__}: {error}")
         return RecordingOutcome(
             path = None,
             error = f"микрофон недоступен: {type(error).__name__}",
@@ -99,7 +103,7 @@ def record(seconds: float | None, config: ListeningConfig) -> RecordingOutcome:
             target.setframerate(config.recording_sample_rate)
             target.writeframes(samples.tobytes())
     except Exception as error:
-        print(f"[speech] запись не сохранилась: {type(error).__name__}: {error}")
+        logger.warning(f"[speech] запись не сохранилась: {type(error).__name__}: {error}")
         return RecordingOutcome(
             path = None,
             error = "файл записи не сохранился",
@@ -127,7 +131,7 @@ def _record_fixed(sounddevice: ModuleType, seconds: float, sample_rate: int) -> 
     Возвращает:
         Массив отсчётов int16 одним каналом.
     """
-    print(f"[speech] запись {seconds:.0f} секунд, говорите")
+    logger.info(f"[speech] запись {seconds:.0f} секунд, говорите")
     samples = sounddevice.rec(
         int(seconds * sample_rate),
         samplerate = sample_rate,
@@ -155,10 +159,10 @@ def _record_until_enter(sounddevice: ModuleType, numpy: ModuleType, sample_rate:
     def collect(indata: Any, frames: int, time_info: Any, status: Any) -> None:
         """Складывает очередной кусок звука. Вызывается из потока записи."""
         if status:
-            print(f"[speech] поток записи: {status}")
+            logger.warning(f"[speech] поток записи: {status}")
         chunks.append(indata.copy())
 
-    print("[speech] запись пошла, говорите. Enter - остановить")
+    logger.info("[speech] запись пошла, говорите. Enter - остановить")
     with sounddevice.InputStream(
         samplerate = sample_rate,
         channels = 1,

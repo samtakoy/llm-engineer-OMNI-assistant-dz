@@ -15,12 +15,16 @@
 """
 
 import hashlib
+import logging
 from pathlib import Path
 from typing import Any
 
 from ..filecache import open_cache
 from .config import ListeningConfig
 from .outcomes import TranscriptOutcome
+
+logger = logging.getLogger(__name__)
+
 
 # Версия формата записи о расшифровке.
 _RECORD_VERSION = 1
@@ -91,7 +95,10 @@ class SpeechRecognizer:
             # а не в вызове transcribe.
             text = " ".join(segment.text.strip() for segment in segments).strip()
         except Exception as error:
-            print(f"[speech] распознавание {audio_path.name} не удалось: {type(error).__name__}: {error}")
+            logger.warning(
+                f"[speech] распознавание {audio_path.name} не удалось: "
+                f"{type(error).__name__}: {error}"
+            )
             return TranscriptOutcome(
                 text = "",
                 error = f"распознавание оборвалось: {type(error).__name__}",
@@ -135,10 +142,10 @@ class SpeechRecognizer:
         except (ImportError, OSError) as error:
             # OSError ловится наравне с ImportError: ctranslate2 подгружает свои
             # бинарники на импорте и без них падает именно так.
-            print(f"[speech] библиотека faster-whisper недоступна: {type(error).__name__}: {error}")
+            logger.warning(f"[speech] библиотека faster-whisper недоступна: {type(error).__name__}: {error}")
             return None, "библиотека распознавания недоступна"
 
-        print(
+        logger.info(
             f"[speech] загрузка модели {self._config.recognition_model} "
             f"({self._config.recognition_device}, {self._config.recognition_compute_type})"
         )
@@ -149,7 +156,7 @@ class SpeechRecognizer:
                 compute_type = self._config.recognition_compute_type,
             )
         except Exception as error:
-            print(f"[speech] модель не загрузилась: {type(error).__name__}: {error}")
+            logger.warning(f"[speech] модель не загрузилась: {type(error).__name__}: {error}")
             return None, f"модель {self._config.recognition_model} не загрузилась"
 
         return self._model, ""
@@ -174,7 +181,7 @@ class SpeechRecognizer:
                 while chunk := stream.read(_FINGERPRINT_CHUNK_BYTES):
                     digest.update(chunk)
         except OSError as error:
-            print(f"[speech] отпечаток {audio_path.name} не снялся: {type(error).__name__}: {error}")
+            logger.warning(f"[speech] отпечаток {audio_path.name} не снялся: {type(error).__name__}: {error}")
             return ""
 
         return (

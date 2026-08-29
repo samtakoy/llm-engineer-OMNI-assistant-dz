@@ -30,6 +30,7 @@ from langchain_openai import ChatOpenAI
 
 from assistant.integrations.llm.client import build_llm
 from assistant.integrations.llm.profiles import NodeRole
+from assistant.observability import setup_console_output
 from assistant.persona import Persona, build_persona, describe_look
 from assistant.variables import VISION_MODEL, VISION_PROVIDER
 
@@ -75,7 +76,7 @@ def collect_looks(llm: ChatOpenAI, images: list[Path]) -> dict[Path, str]:
 
     for image_path in images:
         started = time.monotonic()
-        look, error = describe_look(llm = llm, image_path = image_path)
+        look, error = describe_look(llm = llm, image_path = image_path, callbacks = [])
         spent_seconds = time.monotonic() - started
 
         if error:
@@ -121,7 +122,7 @@ def build_personas(llm: ChatOpenAI, looks: dict[Path, str]) -> None:
     """
     for image_path, look in looks.items():
         started = time.monotonic()
-        persona, error = build_persona(llm = llm, look = look)
+        persona, error = build_persona(llm = llm, look = look, callbacks = [])
         spent_seconds = time.monotonic() - started
 
         if error:
@@ -140,6 +141,7 @@ def main() -> None:
     Возвращает:
         Ничего.
     """
+    setup_console_output()
     parser = argparse.ArgumentParser(description = "Проверка цепочки облик - персонаж")
     parser.add_argument("path", help = "файл с картинкой или каталог с картинками")
     parser.add_argument("--limit", type = int, default = 0, help = "сколько взять; ноль - все")

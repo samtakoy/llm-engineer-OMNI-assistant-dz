@@ -8,6 +8,9 @@ mark_up_speech отдаёт модели текст и манеру расска
 Наружу исключения не уходят - причина возвращается второй половиной пары.
 """
 
+import logging
+
+from langchain_core.callbacks import BaseCallbackHandler
 from langchain_core.messages import HumanMessage, SystemMessage
 from langchain_openai import ChatOpenAI
 
@@ -16,8 +19,15 @@ from .narrator import render_narrator_prompt
 from .prompts import MARKUP_PROMPT
 from .schemas import Persona
 
+logger = logging.getLogger(__name__)
 
-def mark_up_speech(llm: ChatOpenAI, persona: Persona, text: str) -> tuple[str, str]:
+
+def mark_up_speech(
+    llm: ChatOpenAI,
+    persona: Persona,
+    text: str,
+    callbacks: list[BaseCallbackHandler],
+) -> tuple[str, str]:
     """
     Размечает текст паузами, ударениями и сменой темпа под манеру персонажа.
 
@@ -25,6 +35,7 @@ def mark_up_speech(llm: ChatOpenAI, persona: Persona, text: str) -> tuple[str, s
         llm: клиент текстовой модели.
         persona: рассказчик, выведенный из облика.
         text: текст без разметки.
+        callbacks: слушатели прогона; журнал заводит вызывающий.
 
     Возвращает:
         Пару «размеченный текст, причина неудачи». При успехе причина пустая,
@@ -45,10 +56,11 @@ def mark_up_speech(llm: ChatOpenAI, persona: Persona, text: str) -> tuple[str, s
             [
                 SystemMessage(content = MARKUP_PROMPT),
                 HumanMessage(content = request),
-            ]
+            ],
+            config = {"callbacks": callbacks},
         )
     except Exception as error:
-        print(f"[персона] вызов модели не удался: {type(error).__name__}: {error}")
+        logger.warning(f"[персона] вызов модели не удался: {type(error).__name__}: {error}")
         return "", f"модель не ответила: {type(error).__name__}"
 
     marked = message.text.strip()

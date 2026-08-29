@@ -7,11 +7,15 @@
 половиной ожидаемых полей.
 """
 
+import logging
 import sqlite3
 from pathlib import Path
 
 from langgraph.checkpoint.base import BaseCheckpointSaver
 from langgraph.checkpoint.serde.jsonplus import JsonPlusSerializer
+
+logger = logging.getLogger(__name__)
+
 
 # Версия состава полей ResearchState.
 CHECKPOINT_SCHEMA_VERSION = 1
@@ -42,7 +46,7 @@ def open_checkpointer(directory: Path | None) -> BaseCheckpointSaver | None:
     try:
         from langgraph.checkpoint.sqlite import SqliteSaver
     except ImportError as error:
-        print(f"[снимки] библиотека langgraph-checkpoint-sqlite недоступна: {error}")
+        logger.warning(f"[снимки] библиотека langgraph-checkpoint-sqlite недоступна: {error}")
         return None
 
     try:
@@ -58,7 +62,7 @@ def open_checkpointer(directory: Path | None) -> BaseCheckpointSaver | None:
         )
         saver.setup()
     except Exception as error:
-        print(f"[снимки] хранилище не открылось: {type(error).__name__}: {error}")
+        logger.warning(f"[снимки] хранилище не открылось: {type(error).__name__}: {error}")
         return None
 
     return saver

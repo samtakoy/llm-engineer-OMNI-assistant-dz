@@ -8,8 +8,12 @@ effect_catalog отдаёт имена эффектов с описанием з
 Torch и torchaudio импортируются внутри функций.
 """
 
+import logging
 from dataclasses import dataclass
 from typing import Any, Callable
+
+logger = logging.getLogger(__name__)
+
 
 # Числа за метками силы эффекта.
 _STRENGTH_SCALE = {
@@ -233,7 +237,7 @@ def apply_effect(audio: Any, sample_rate: int, effect: str, strength: str) -> tu
     try:
         processed = _EFFECTS[effect].apply(audio, sample_rate, _STRENGTH_SCALE[strength])
     except Exception as error:
-        print(f"[speaking] эффект {effect} не наложился: {type(error).__name__}: {error}")
+        logger.warning(f"[speaking] эффект {effect} не наложился: {type(error).__name__}: {error}")
         return audio, f"эффект {effect} не наложился: {type(error).__name__}"
 
     return processed, ""

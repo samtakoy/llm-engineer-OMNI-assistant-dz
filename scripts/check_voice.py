@@ -24,6 +24,7 @@ from langchain_openai import ChatOpenAI
 from assistant.integrations.llm.client import build_llm
 from assistant.integrations.llm.profiles import NodeRole
 from assistant.integrations.speaking import SpeechSynthesizer
+from assistant.observability import setup_console_output
 from assistant.persona import Persona, build_persona, describe_look, pick_voice
 from assistant.variables import SPEAKING_CONFIG, VISION_MODEL, VISION_PROVIDER
 
@@ -68,7 +69,7 @@ def collect_looks(llm: ChatOpenAI, images: list[Path]) -> dict[Path, str]:
     looks: dict[Path, str] = {}
 
     for image_path in images:
-        look, error = describe_look(llm = llm, image_path = image_path)
+        look, error = describe_look(llm = llm, image_path = image_path, callbacks = [])
         if error:
             print(f"{image_path}: {error}", flush = True)
             continue
@@ -98,13 +99,18 @@ def check_voice(
     Возвращает:
         Ничего.
     """
-    persona, error = build_persona(llm = writing_llm, look = look)
+    persona, error = build_persona(llm = writing_llm, look = look, callbacks = [])
     if error:
         print(f"{image_path}: {error}", flush = True)
         return
 
     started = time.monotonic()
-    settings, error = pick_voice(llm = extraction_llm, persona = persona, speakers = speakers)
+    settings, error = pick_voice(
+        llm = extraction_llm,
+        persona = persona,
+        speakers = speakers,
+        callbacks = [],
+    )
     spent_seconds = time.monotonic() - started
 
     if error:
@@ -139,6 +145,7 @@ def main() -> None:
     Возвращает:
         Ничего.
     """
+    setup_console_output()
     parser = argparse.ArgumentParser(description = "Проверка подбора голоса под персонажа")
     parser.add_argument("path", help = "файл с картинкой или каталог с картинками")
     parser.add_argument("--limit", type = int, default = 0, help = "сколько взять; ноль - все")

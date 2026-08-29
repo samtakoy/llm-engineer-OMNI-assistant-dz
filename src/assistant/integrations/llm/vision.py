@@ -5,14 +5,19 @@
 """
 
 import base64
+import logging
 from io import BytesIO
 from pathlib import Path
 from typing import TypeVar
 
+from langchain_core.callbacks import BaseCallbackHandler
 from langchain_core.messages import HumanMessage
 from langchain_openai import ChatOpenAI
 from PIL import Image
 from pydantic import BaseModel
+
+logger = logging.getLogger(__name__)
+
 
 # Схема ответа приходит от вызывающего, и вернуть надо её же, а не BaseModel:
 # иначе у поля разобранного ответа теряется тип.
@@ -51,7 +56,7 @@ def image_data_url(image_path: Path, max_side: int, jpeg_quality: int) -> tuple[
             frame.thumbnail((max_side, max_side))
             frame.save(buffer, format = _ENCODED_FORMAT, quality = jpeg_quality)
     except Exception as error:
-        print(f"[зрение] картинка {image_path.name} не открылась: {type(error).__name__}: {error}")
+        logger.warning(f"[зрение] картинка {image_path.name} не открылась: {type(error).__name__}: {error}")
         return "", f"картинка {image_path.name} не открылась"
 
     payload = base64.b64encode(buffer.getvalue()).decode("ascii")
@@ -77,7 +82,12 @@ def _image_message(image_url: str, instruction: str) -> HumanMessage:
     )
 
 
-def describe_image(llm: ChatOpenAI, image_url: str, instruction: str) -> tuple[str, str]:
+def describe_image(
+    llm: ChatOpenAI,
+    image_url: str,
+    instruction: str,
+    callbacks: list[BaseCallbackHandler],
+) -> tuple[str, str]:
     """
     Спрашивает модель о картинке и возвращает ответ текстом.
 
@@ -85,21 +95,25 @@ def describe_image(llm: ChatOpenAI, image_url: str, instruction: str) -> tuple[s
         llm: клиент модели, собранный build_llm с моделью, принимающей картинки.
         image_url: картинка строкой data url либо обычным адресом.
         instruction: что спросить у картинки.
+        callbacks: слушатели прогона; журнал заводит вызывающий.
 
     Возвращает:
         Пару «текст ответа, причина неудачи». При успехе причина пустая, при
         неудаче текст пустой.
     """
     try:
-        message = llm.invoke([_image_message(image_url = image_url, instruction = instruction)])
+        message = llm.invoke(
+            [_image_message(image_url = image_url, instruction = instruction)],
+            config = {"callbacks": callbacks},
+        )
     except Exception as error:
-        print(f"[зрение] вызов модели не удался: {type(error).__name__}: {error}")
+        logger.warning(f"[зрение] вызов модели не удался: {type(error).__name__}: {error}")
         return "", f"модель не ответила: {type(error).__name__}"
 
     # Обрыв по потолку длины не ошибка, ответ приходит урезанным. Без пометки
     # его не отличить от короткого описания.
     if message.response_metadata.get("finish_reason") == "length":
-        print("[зрение] ответ обрезан потолком длины")
+        logger.warning("[зрение] ответ обрезан потолком длины")
 
     text = message.text.strip()
     if not text:
@@ -113,6 +127,7 @@ def look_at_image(
     image_url: str,
     instruction: str,
     schema: type[StructuredAnswer],
+    callbacks: list[BaseCallbackHandler],
 ) -> tuple[StructuredAnswer | None, str]:
     """
     Спрашивает модель о картинке и разбирает ответ по схеме.
@@ -125,6 +140,7 @@ def look_at_image(
         image_url: картинка строкой data url либо обычным адресом.
         instruction: что спросить у картинки.
         schema: схема ответа.
+        callbacks: слушатели прогона; журнал заводит вызывающий.
 
     Возвращает:
         Пару «разобранный ответ, причина неудачи». При успехе причина пустая,
@@ -134,10 +150,11 @@ def look_at_image(
 
     try:
         answer = structured_llm.invoke(
-            [_image_message(image_url = image_url, instruction = instruction)]
+            [_image_message(image_url = image_url, instruction = instruction)],
+            config = {"callbacks": callbacks},
         )
     except Exception as error:
-        print(f"[зрение] вызов модели не удался: {type(error).__name__}: {error}")
+        logger.warning(f"[зрение] вызов модели не удался: {type(error).__name__}: {error}")
         return None, f"модель не ответила по схеме: {type(error).__name__}"
 
     return answer, ""
