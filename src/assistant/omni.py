@@ -1,8 +1,9 @@
 """
 Сборка всех этапов: вопрос, фотография персонажа, экскурсия его голосом.
 
-Вопрос берётся текстом, из файла с записью или с микрофона. Длительности этапов
-копит Stopwatch и возвращает рядом с ответом.
+Вопрос берётся текстом, из файла с записью или с микрофона. Записанный прогон
+продолжается с указанного узла теми же этапами. Длительности этапов копит
+Stopwatch и возвращает рядом с ответом.
 """
 
 from dataclasses import dataclass
@@ -12,7 +13,14 @@ from pathlib import Path
 from langchain_core.callbacks import BaseCallbackHandler
 from langchain_openai import ChatOpenAI
 
-from assistant.graph import Answer, ResearchNotes, describe_nodes, new_run_id, run_research
+from assistant.graph import (
+    Answer,
+    ResearchNotes,
+    describe_nodes,
+    new_run_id,
+    resume_research,
+    run_research,
+)
 from assistant.integrations.listening import SILENCE_LEVEL, SpeechRecognizer, record
 from assistant.integrations.llm.client import build_llm
 from assistant.integrations.llm.profiles import NodeRole
@@ -273,7 +281,7 @@ def split_into_pieces(answer: Answer) -> list[str]:
 
 def speak_answer(
     answer: Answer,
-    persona: Persona | None,
+    narrator_prompt: str,
     settings: VoiceSettings,
     synthesizer: SpeechSynthesizer,
     llm: ChatOpenAI,
@@ -286,7 +294,8 @@ def speak_answer(
 
     Аргументы:
         answer: итоговый текст.
-        persona: рассказчик полями; None - разметка не запрашивается.
+        narrator_prompt: блок про рассказчика; пустая строка - разметка не
+            запрашивается.
         settings: настройки голоса.
         synthesizer: синтезатор речи.
         llm: клиент текстовой модели для разметки.
@@ -303,11 +312,11 @@ def speak_answer(
     for index, piece in enumerate(split_into_pieces(answer = answer), start = 1):
         spoken_text = piece
 
-        if is_markup_on and persona is not None:
+        if is_markup_on and narrator_prompt:
             with timing.stage(name = f"разметка {index}"):
                 marked, error = mark_up_speech(
                     llm = llm,
-                    persona = persona,
+                    narrator_prompt = narrator_prompt,
                     text = piece,
                     callbacks = callbacks,
                 )
@@ -366,6 +375,67 @@ def failed_outcome(
         audio_paths = [],
         timing = timing,
         error = error,
+    )
+
+
+def finish_run(
+    question: str,
+    answer: Answer,
+    notes: ResearchNotes,
+    persona: Persona | None,
+    narrator_prompt: str,
+    look: str,
+    trace_path: Path | None,
+    is_speech_on: bool,
+    is_markup_on: bool,
+    timing: Stopwatch,
+    callbacks: list[BaseCallbackHandler],
+) -> OmniOutcome:
+    """
+    Озвучивает готовый текст и собирает исход прогона.
+
+    Аргументы:
+        question: вопрос пользователя.
+        answer: итоговый текст.
+        notes: фактическая опора.
+        persona: рассказчик полями; None - рассказчик задан фразой или его нет.
+        narrator_prompt: блок про рассказчика; пустая строка, если рассказчика нет.
+        look: описание облика; пустая строка, если фотографии не было.
+        trace_path: файл журнала прогона; None, если журнал выключен.
+        is_speech_on: озвучивать готовый текст.
+        is_markup_on: размечать текст перед озвучкой.
+        timing: копилка замеров.
+        callbacks: слушатели прогона; журнал заводит вызывающий.
+
+    Возвращает:
+        Исход прогона с текстом, опорой и озвучкой.
+    """
+    voice: VoiceSettings | None = None
+    audio_paths: list[Path] = []
+
+    if is_speech_on:
+        voice, audio_paths = speak_outcome(
+            answer = answer,
+            narrator_prompt = narrator_prompt,
+            is_markup_on = is_markup_on,
+            timing = timing,
+            callbacks = callbacks,
+        )
+
+    log_timing(timing = timing)
+
+    return OmniOutcome(
+        question = question,
+        answer = answer,
+        notes = notes,
+        persona = persona,
+        narrator_prompt = narrator_prompt,
+        look = look,
+        trace_path = trace_path,
+        voice = voice,
+        audio_paths = audio_paths,
+        timing = timing,
+        error = "",
     )
 
 
@@ -457,21 +527,7 @@ def run_omni_assistant(
                 callbacks = callbacks,
             )
 
-        voice: VoiceSettings | None = None
-        audio_paths: list[Path] = []
-
-        if is_speech_on:
-            voice, audio_paths = speak_outcome(
-                answer = answer,
-                persona = persona,
-                is_markup_on = is_markup_on,
-                timing = timing,
-                callbacks = callbacks,
-            )
-
-        log_timing(timing = timing)
-
-        return OmniOutcome(
+        return finish_run(
             question = question,
             answer = answer,
             notes = notes,
@@ -479,16 +535,93 @@ def run_omni_assistant(
             narrator_prompt = narrator_prompt,
             look = look,
             trace_path = trace_path,
-            voice = voice,
-            audio_paths = audio_paths,
+            is_speech_on = is_speech_on,
+            is_markup_on = is_markup_on,
             timing = timing,
-            error = "",
+            callbacks = callbacks,
+        )
+
+
+def resume_omni_assistant(
+    resume_run_id: str,
+    from_node: str,
+    narrator_style: str | None,
+    is_speech_on: bool,
+    is_markup_on: bool,
+) -> OmniOutcome:
+    """
+    Переигрывает записанный прогон с указанного узла.
+
+    Вопрос и рассказчик берутся из снимка. Готовая фраза про рассказчика
+    заменяет записанную. Персонажа полями в снимке нет, поэтому голос и разметка
+    строятся по блоку про рассказчика.
+
+    Аргументы:
+        resume_run_id: идентификатор записанного прогона.
+        from_node: узел, с которого продолжать.
+        narrator_style: готовая фраза про голос рассказчика; None - взять
+            записанную.
+        is_speech_on: озвучивать готовый текст.
+        is_markup_on: размечать текст перед озвучкой.
+
+    Возвращает:
+        Исход прогона: текст экскурсии с опорой и озвучкой либо причина неудачи.
+    """
+    timing = Stopwatch()
+
+    # Журнал у продолжения свой: имя исходного прогона плюс время рестарта.
+    # Исходный файл остаётся нетронутым, а происхождение видно и в имени, и в шапке.
+    trace_id = f"{resume_run_id}+{new_run_id()}"
+    origin_rows = [f"- продолжение прогона `{resume_run_id}` с узла `{from_node}`"]
+
+    with trace_run(
+        trace_id = trace_id,
+        node_rows = describe_nodes(),
+        origin_rows = origin_rows,
+    ) as trace:
+        trace_path = trace.path() if trace is not None else None
+        callbacks: list[BaseCallbackHandler] = [trace] if trace is not None else []
+
+        with timing.stage(name = "продолжение"):
+            resumed = resume_research(
+                run_id = resume_run_id,
+                from_node = from_node,
+                narrator_prompt = narrator_style,
+                callbacks = callbacks,
+            )
+
+        error = resumed.error
+        if not error and (resumed.answer is None or resumed.notes is None):
+            error = "продолжение не дало готового текста"
+
+        if error:
+            log_timing(timing = timing)
+            return failed_outcome(
+                question = resumed.question,
+                look = "",
+                trace_path = trace_path,
+                timing = timing,
+                error = error,
+            )
+
+        return finish_run(
+            question = resumed.question,
+            answer = resumed.answer,
+            notes = resumed.notes,
+            persona = None,
+            narrator_prompt = resumed.narrator_prompt,
+            look = "",
+            trace_path = trace_path,
+            is_speech_on = is_speech_on,
+            is_markup_on = is_markup_on,
+            timing = timing,
+            callbacks = callbacks,
         )
 
 
 def speak_outcome(
     answer: Answer,
-    persona: Persona | None,
+    narrator_prompt: str,
     is_markup_on: bool,
     timing: Stopwatch,
     callbacks: list[BaseCallbackHandler],
@@ -498,7 +631,8 @@ def speak_outcome(
 
     Аргументы:
         answer: итоговый текст.
-        persona: рассказчик полями; None - голос берётся по умолчанию.
+        narrator_prompt: блок про рассказчика; пустая строка - голос берётся
+            по умолчанию.
         is_markup_on: размечать текст перед озвучкой.
         timing: копилка замеров.
         callbacks: слушатели прогона; журнал заводит вызывающий.
@@ -521,7 +655,7 @@ def speak_outcome(
         model = None,
     )
 
-    if persona is None:
+    if not narrator_prompt:
         settings = default_voice(speakers = speakers)
     else:
         extraction_llm = build_llm(
@@ -532,7 +666,7 @@ def speak_outcome(
         with timing.stage(name = "подбор голоса"):
             settings, error = pick_voice(
                 llm = extraction_llm,
-                persona = persona,
+                narrator_prompt = narrator_prompt,
                 speakers = speakers,
                 callbacks = callbacks,
             )
@@ -544,7 +678,7 @@ def speak_outcome(
 
     paths = speak_answer(
         answer = answer,
-        persona = persona,
+        narrator_prompt = narrator_prompt,
         settings = settings,
         synthesizer = synthesizer,
         llm = writing_llm,

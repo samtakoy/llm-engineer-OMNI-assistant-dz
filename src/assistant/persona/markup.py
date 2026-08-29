@@ -15,25 +15,23 @@ from langchain_core.messages import HumanMessage, SystemMessage
 from langchain_openai import ChatOpenAI
 
 from ..integrations.speaking import pitch_values, rate_values
-from .narrator import render_narrator_prompt
 from .prompts import MARKUP_PROMPT
-from .schemas import Persona
 
 logger = logging.getLogger(__name__)
 
 
 def mark_up_speech(
     llm: ChatOpenAI,
-    persona: Persona,
+    narrator_prompt: str,
     text: str,
     callbacks: list[BaseCallbackHandler],
 ) -> tuple[str, str]:
     """
-    Размечает текст паузами, ударениями и сменой темпа под манеру персонажа.
+    Размечает текст паузами, ударениями и сменой темпа под манеру рассказчика.
 
     Аргументы:
         llm: клиент текстовой модели.
-        persona: рассказчик, выведенный из облика.
+        narrator_prompt: блок про рассказчика.
         text: текст без разметки.
         callbacks: слушатели прогона; журнал заводит вызывающий.
 
@@ -45,7 +43,7 @@ def mark_up_speech(
         return "", "размечать нечего"
 
     request = (
-        f"Рассказчик:\n{render_narrator_prompt(persona = persona)}\n"
+        f"Рассказчик:\n{narrator_prompt}\n"
         f"Значения темпа: {', '.join(rate_values())}\n"
         f"Значения высоты: {', '.join(pitch_values())}\n"
         f"Текст:\n{text}"

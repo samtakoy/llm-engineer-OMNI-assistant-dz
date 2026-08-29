@@ -25,7 +25,13 @@ from assistant.integrations.llm.client import build_llm
 from assistant.integrations.llm.profiles import NodeRole
 from assistant.integrations.speaking import SpeechSynthesizer
 from assistant.observability import setup_console_output
-from assistant.persona import Persona, build_persona, describe_look, pick_voice
+from assistant.persona import (
+    Persona,
+    build_persona,
+    describe_look,
+    pick_voice,
+    render_narrator_prompt,
+)
 from assistant.variables import SPEAKING_CONFIG, VISION_MODEL, VISION_PROVIDER
 
 IMAGE_SUFFIXES = (".jpg", ".jpeg", ".png", ".webp", ".gif", ".bmp")
@@ -107,7 +113,7 @@ def check_voice(
     started = time.monotonic()
     settings, error = pick_voice(
         llm = extraction_llm,
-        persona = persona,
+        narrator_prompt = render_narrator_prompt(persona = persona),
         speakers = speakers,
         callbacks = [],
     )

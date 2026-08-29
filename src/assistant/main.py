@@ -13,11 +13,14 @@ from assistant.graph import (
     ResearchNotes,
     describe_nodes,
     list_runs,
-    new_run_id,
-    resume_research,
 )
-from assistant.observability import setup_console_output, trace_run
-from assistant.omni import RECORD_UNTIL_ENTER, OmniOutcome, run_omni_assistant
+from assistant.observability import setup_console_output
+from assistant.omni import (
+    RECORD_UNTIL_ENTER,
+    OmniOutcome,
+    resume_omni_assistant,
+    run_omni_assistant,
+)
 from assistant.persona import PersonaMode
 from assistant.variables import LLM_PROVIDER, PERSONA_MODE
 
@@ -113,6 +116,26 @@ def check_question_sources(arguments: argparse.Namespace) -> str:
     return ""
 
 
+def check_resume_arguments(arguments: argparse.Namespace) -> str:
+    """
+    Проверяет аргументы продолжения записанного прогона.
+
+    Аргументы:
+        arguments: разобранные аргументы командной строки.
+
+    Возвращает:
+        Причину отказа либо пустую строку, если аргументы сходятся.
+    """
+    given = [arguments.question, arguments.audio, arguments.record, arguments.image]
+    if any(source is not None for source in given):
+        return "--resume не сочетается с вопросом, --audio, --record и --image."
+
+    if arguments.from_node is None:
+        return "К --resume нужен --from: с какого узла продолжать."
+
+    return ""
+
+
 def print_runs() -> None:
     """
     Печатает прогоны, которые можно переиграть.
@@ -179,55 +202,12 @@ def print_timing(outcome: OmniOutcome) -> None:
         print(f"\n--- журнал прогона ---\n  {outcome.trace_path}")
 
 
-def run_resume(arguments: argparse.Namespace) -> None:
-    """
-    Переигрывает записанный прогон с указанного узла.
-
-    Аргументы:
-        arguments: разобранные аргументы командной строки.
-
-    Возвращает:
-        Ничего. При неудаче завершает процесс кодом 1.
-    """
-    given = [arguments.question, arguments.audio, arguments.record, arguments.image]
-    if any(source is not None for source in given):
-        print("--resume не сочетается с вопросом, --audio, --record и --image.")
-        sys.exit(1)
-
-    if arguments.from_node is None:
-        print("К --resume нужен --from: с какого узла продолжать.")
-        sys.exit(1)
-
-    # Журнал у продолжения свой: имя исходного прогона плюс время рестарта.
-    # Исходный файл остаётся нетронутым, а происхождение видно и в имени, и в шапке.
-    trace_id = f"{arguments.resume}+{new_run_id()}"
-    origin_rows = [f"- продолжение прогона `{arguments.resume}` с узла `{arguments.from_node}`"]
-
-    with trace_run(
-        trace_id = trace_id,
-        node_rows = describe_nodes(),
-        origin_rows = origin_rows,
-    ) as trace:
-        answer, notes, error = resume_research(
-            run_id = arguments.resume,
-            from_node = arguments.from_node,
-            narrator_prompt = arguments.narrator,
-            callbacks = [trace] if trace is not None else [],
-        )
-
-    if error:
-        print(f"Переиграть прогон не вышло: {error}")
-        sys.exit(1)
-
-    print_answer(answer = answer, notes = notes)
-
-
 def main() -> None:
     """
     Разбирает аргументы командной строки и печатает ответ ресёрчера.
 
     Возвращает:
-        Ничего. При неудаче с вопросом завершает процесс кодом 1.
+        Ничего. При неудаче завершает процесс кодом 1.
     """
     setup_console_output()
 
@@ -242,28 +222,38 @@ def main() -> None:
         print(f"  {line}")
 
     if arguments.resume:
-        run_resume(arguments = arguments)
-        return
+        refusal = check_resume_arguments(arguments = arguments)
+        if refusal:
+            print(refusal)
+            sys.exit(1)
 
-    refusal = check_question_sources(arguments = arguments)
-    if refusal:
-        print(refusal)
-        sys.exit(1)
+        outcome = resume_omni_assistant(
+            resume_run_id = arguments.resume,
+            from_node = arguments.from_node,
+            narrator_style = arguments.narrator,
+            is_speech_on = arguments.speak,
+            is_markup_on = arguments.markup,
+        )
+    else:
+        refusal = check_question_sources(arguments = arguments)
+        if refusal:
+            print(refusal)
+            sys.exit(1)
 
-    if arguments.image and arguments.narrator:
-        print("Рассказчик задаётся одним способом: --image или --narrator.")
-        sys.exit(1)
+        if arguments.image and arguments.narrator:
+            print("Рассказчик задаётся одним способом: --image или --narrator.")
+            sys.exit(1)
 
-    outcome = run_omni_assistant(
-        image_path = Path(arguments.image) if arguments.image else None,
-        narrator_style = arguments.narrator,
-        persona_mode = PersonaMode(arguments.persona_mode),
-        question_text = arguments.question,
-        audio_path = Path(arguments.audio) if arguments.audio else None,
-        record_seconds = arguments.record,
-        is_speech_on = arguments.speak,
-        is_markup_on = arguments.markup,
-    )
+        outcome = run_omni_assistant(
+            image_path = Path(arguments.image) if arguments.image else None,
+            narrator_style = arguments.narrator,
+            persona_mode = PersonaMode(arguments.persona_mode),
+            question_text = arguments.question,
+            audio_path = Path(arguments.audio) if arguments.audio else None,
+            record_seconds = arguments.record,
+            is_speech_on = arguments.speak,
+            is_markup_on = arguments.markup,
+        )
 
     if outcome.error:
         print(f"Прогон не удался: {outcome.error}")

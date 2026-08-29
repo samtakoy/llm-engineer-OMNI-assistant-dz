@@ -13,6 +13,7 @@
 Тем же идентификатором называется файл журнала.
 """
 
+from dataclasses import dataclass
 from datetime import datetime
 
 from langchain_core.callbacks import BaseCallbackHandler
@@ -142,12 +143,52 @@ def run_research(
     return final_state["answer"], final_state["notes"]
 
 
+@dataclass(frozen = True)
+class ResumedRun:
+    """
+    Исход продолжения записанного прогона.
+
+    Атрибуты:
+        answer: итоговый текст; None при неудаче.
+        notes: фактическая опора; None при неудаче.
+        question: вопрос пользователя из снимка; пустая строка при неудаче.
+        narrator_prompt: блок про рассказчика из снимка; пустая строка, если
+            рассказчик не задан, и при неудаче.
+        error: причина неудачи; пустая строка при успехе.
+    """
+
+    answer: Answer | None
+    notes: ResearchNotes | None
+    question: str
+    narrator_prompt: str
+    error: str
+
+
+def failed_resume(error: str) -> ResumedRun:
+    """
+    Собирает исход продолжения, оборвавшегося до вызова графа.
+
+    Аргументы:
+        error: причина неудачи.
+
+    Возвращает:
+        Исход без текста, опоры, вопроса и рассказчика.
+    """
+    return ResumedRun(
+        answer = None,
+        notes = None,
+        question = "",
+        narrator_prompt = "",
+        error = error,
+    )
+
+
 def resume_research(
     run_id: str,
     from_node: str,
     narrator_prompt: str | None,
     callbacks: list[BaseCallbackHandler],
-) -> tuple[Answer | None, ResearchNotes | None, str]:
+) -> ResumedRun:
     """
     Продолжает записанный прогон с указанного узла.
 
@@ -158,22 +199,24 @@ def resume_research(
         callbacks: слушатели прогона.
 
     Возвращает:
-        Кортеж из итогового текста, фактической опоры и причины неудачи.
-        При неудаче первые два значения - None.
+        Исход продолжения: итоговый текст с опорой, вопрос и рассказчик из
+        снимка либо причина неудачи.
     """
     checkpointer = open_checkpointer(directory = CHECKPOINT_DIR)
     if checkpointer is None:
-        return None, None, "хранилище снимков выключено"
+        return failed_resume(error = "хранилище снимков выключено")
 
     graph = build_graph(checkpointer = checkpointer)
     snapshots = list(graph.get_state_history({"configurable": {"thread_id": run_id}}))
     if not snapshots:
-        return None, None, f"снимков прогона {run_id} нет"
+        return failed_resume(error = f"снимков прогона {run_id} нет")
 
     target = next((snapshot for snapshot in snapshots if snapshot.next == (from_node,)), None)
     if target is None:
         available = ", ".join(sorted({node for snapshot in snapshots for node in snapshot.next}))
-        return None, None, f"в прогоне {run_id} нет входа в узел {from_node}; есть: {available}"
+        return failed_resume(
+            error = f"в прогоне {run_id} нет входа в узел {from_node}; есть: {available}"
+        )
 
     log_resume(run_id = run_id, from_node = from_node)
 
@@ -188,7 +231,13 @@ def resume_research(
 
     final_state = graph.invoke(None, config = config)
 
-    return final_state["answer"], final_state["notes"], ""
+    return ResumedRun(
+        answer = final_state["answer"],
+        notes = final_state["notes"],
+        question = final_state["question"],
+        narrator_prompt = final_state["narrator_prompt"] or "",
+        error = "",
+    )
 
 
 def list_runs() -> list[tuple[str, str]]:

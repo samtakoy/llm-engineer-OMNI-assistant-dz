@@ -4,6 +4,7 @@
 
 from .graph import (
     RESUMABLE_NODES,
+    ResumedRun,
     build_graph,
     list_runs,
     new_run_id,
@@ -18,6 +19,7 @@ __all__ = [
     "run_research",
     "new_run_id",
     "resume_research",
+    "ResumedRun",
     "list_runs",
     "RESUMABLE_NODES",
     "describe_nodes",

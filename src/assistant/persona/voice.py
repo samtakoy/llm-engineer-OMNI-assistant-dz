@@ -1,5 +1,5 @@
 """
-Подбор голоса синтеза под характер персонажа.
+Подбор голоса синтеза под манеру рассказчика.
 
 pick_voice отдаёт VoiceSettings: имя голоса из переданного списка, темп и
 высоту речи. Список голосов приходит снаружи, имена в коде не хранятся.
@@ -14,21 +14,19 @@ from langchain_core.messages import HumanMessage, SystemMessage
 from langchain_openai import ChatOpenAI
 
 from ..integrations.speaking import NO_EFFECT, VoiceSettings, effect_catalog
-from .narrator import render_narrator_prompt
 from .prompts import VOICE_PROMPT
-from .schemas import Persona
 
 logger = logging.getLogger(__name__)
 
 
 def pick_voice(
     llm: ChatOpenAI,
-    persona: Persona,
+    narrator_prompt: str,
     speakers: list[str],
     callbacks: list[BaseCallbackHandler],
 ) -> tuple[VoiceSettings | None, str]:
     """
-    Подбирает голос, темп, высоту речи и звуковой эффект под характер персонажа.
+    Подбирает голос, темп, высоту речи и звуковой эффект под манеру рассказчика.
 
     Имя голоса и имя эффекта из ответа модели проверяются по спискам. Голос вне
     списка заменяется первым голосом, эффект вне реестра - отсутствием эффекта.
@@ -36,7 +34,7 @@ def pick_voice(
 
     Аргументы:
         llm: клиент текстовой модели.
-        persona: рассказчик, выведенный из облика.
+        narrator_prompt: блок про рассказчика.
         speakers: имена голосов, которые знает модель синтеза.
         callbacks: слушатели прогона; журнал заводит вызывающий.
 
@@ -52,7 +50,7 @@ def pick_voice(
 
     structured_llm = llm.with_structured_output(VoiceSettings, method = "json_schema")
     request = (
-        f"Рассказчик:\n{render_narrator_prompt(persona = persona)}\n"
+        f"Рассказчик:\n{narrator_prompt}\n"
         f"Доступные голоса: {', '.join(speakers)}\n"
         f"Доступные эффекты:\n{effects}"
     )

@@ -16,7 +16,13 @@ from assistant.integrations.llm.client import build_llm
 from assistant.integrations.llm.profiles import NodeRole
 from assistant.integrations.speaking import SpeechSynthesizer, VoiceSettings, sanitize_markup
 from assistant.observability import setup_console_output
-from assistant.persona import build_persona, describe_look, mark_up_speech, pick_voice
+from assistant.persona import (
+    build_persona,
+    describe_look,
+    mark_up_speech,
+    pick_voice,
+    render_narrator_prompt,
+)
 from assistant.variables import SPEAKING_CONFIG, SPOKEN_PATH, VISION_MODEL, VISION_PROVIDER
 
 
@@ -93,10 +99,12 @@ def main() -> None:
 
     print(f"[персонаж] {persona.name} ({persona.gender}), манера: {persona.speech_manner}\n")
 
+    narrator_prompt = render_narrator_prompt(persona = persona)
+
     extraction_llm = build_llm(role = NodeRole.EXTRACTION, is_reasoning_forced = False, model = None)
     settings, error = pick_voice(
         llm = extraction_llm,
-        persona = persona,
+        narrator_prompt = narrator_prompt,
         speakers = speakers,
         callbacks = [],
     )
@@ -111,7 +119,7 @@ def main() -> None:
 
     marked, error = mark_up_speech(
         llm = writing_llm,
-        persona = persona,
+        narrator_prompt = narrator_prompt,
         text = arguments.text,
         callbacks = [],
     )
