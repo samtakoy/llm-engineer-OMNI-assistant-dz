@@ -14,8 +14,10 @@ from langchain_core.messages import HumanMessage
 from langgraph.graph import END, START, StateGraph
 
 from assistant.graph.budget import MAX_TOOL_CALLS_PER_RUN
+from assistant.graph.llms import describe_nodes
 from assistant.graph.nodes import agent_node, collect_node, compose_node, tools_node
 from assistant.graph.state import Answer, ResearchNotes, ResearchState
+from assistant.observability.tracing import build_callbacks
 
 
 def _route_after_agent(state: ResearchState) -> str:
@@ -79,7 +81,10 @@ def run_research(question: str, narrator_prompt: str | None) -> tuple[Answer, Re
     # agent и два узла вывода.
     final_state = build_graph().invoke(
         initial_state,
-        config = {"recursion_limit": MAX_TOOL_CALLS_PER_RUN * 2 + 5},
+        config = {
+            "recursion_limit": MAX_TOOL_CALLS_PER_RUN * 2 + 5,
+            "callbacks": build_callbacks(node_rows = describe_nodes()),
+        },
     )
 
     return final_state["answer"], final_state["notes"]

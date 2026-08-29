@@ -135,6 +135,11 @@ WEB_CONFIG = WebConfig(
     bypass_cache = WEB_CACHE_BYPASS,
 )
 
+# Каталог журналов прогона. Пустое значение выключает журнал.
+TRACE_DIR = _cache_directory(
+    raw_path = os.getenv("TRACE_DIR", str(PROJECT_ROOT / "logs" / "traces")).strip()
+)
+
 # Отладочный режим: включить размышление в фазе поиска и показать его текст.
 # Дороже примерно вчетверо по времени, поэтому по умолчанию выключен.
 SHOW_REASONING = os.getenv("SHOW_REASONING", "").strip().lower() in ("1", "true", "yes")
