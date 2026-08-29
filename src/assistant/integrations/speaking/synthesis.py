@@ -5,9 +5,10 @@ SpeechSynthesizer отдаёт список голосов модели и оз�
 голосом, темпом, высотой и звуковым эффектом. Модель грузится при первой
 озвучке и остаётся в поле объекта.
 
-Ненейтральные темп и высота уходят в модель разметкой ssml, нейтральные - чистым
-текстом с ударениями и буквой ё: в режиме ssml silero флаги ударений не
-принимает.
+Разметка в тексте и ненейтральные темп с высотой уходят в модель как ssml,
+чистый текст с нейтральными настройками - как текст с ударениями и буквой ё:
+в режиме ssml silero флаги ударений не принимает. Перед отправкой разметка
+чистится санитайзером, абзацы и предложения расставляются по тексту.
 
 При неудаче возвращается исход с причиной, исключения наружу не уходят.
 """
@@ -15,10 +16,10 @@ SpeechSynthesizer отдаёт список голосов модели и оз�
 import wave
 from pathlib import Path
 from typing import Any
-from xml.sax.saxutils import escape
 
 from .config import SpeakingConfig
 from .effects import apply_effect
+from .markup import sanitize_markup, wrap_speech_parts
 from .outcomes import SynthesisOutcome
 from .voices import VoiceSettings
 
@@ -128,14 +129,16 @@ class SpeechSynthesizer:
 
         Аргументы:
             model: загруженная модель silero.
-            text: что произнести.
+            text: что произнести, с разметкой или без неё.
             settings: голос, темп и высота.
 
         Возвращает:
             Отсчёты звука тензором в диапазоне от минус единицы до единицы.
         """
+        body, has_markup = sanitize_markup(text = text)
         is_neutral = settings.rate == _NEUTRAL_PROSODY and settings.pitch == _NEUTRAL_PROSODY
-        if is_neutral:
+
+        if is_neutral and not has_markup:
             return model.apply_tts(
                 text = text,
                 speaker = settings.speaker,
@@ -145,7 +148,7 @@ class SpeechSynthesizer:
             )
 
         return model.apply_tts(
-            ssml_text = _render_ssml(text = text, settings = settings),
+            ssml_text = _render_ssml(body = wrap_speech_parts(body = body), settings = settings),
             speaker = settings.speaker,
             sample_rate = self._config.sample_rate,
         )
@@ -222,12 +225,12 @@ class SpeechSynthesizer:
         return self._model, ""
 
 
-def _render_ssml(text: str, settings: VoiceSettings) -> str:
+def _render_ssml(body: str, settings: VoiceSettings) -> str:
     """
-    Заворачивает текст в разметку ssml с темпом и высотой.
+    Заворачивает готовое тело в разметку ssml с темпом и высотой.
 
     Аргументы:
-        text: что произнести.
+        body: тело ssml после санитайзера.
         settings: голос, темп и высота.
 
     Возвращает:
@@ -235,7 +238,7 @@ def _render_ssml(text: str, settings: VoiceSettings) -> str:
     """
     return (
         "<speak>"
-        f'<prosody rate="{settings.rate}" pitch="{settings.pitch}">{escape(text)}</prosody>'
+        f'<prosody rate="{settings.rate}" pitch="{settings.pitch}">{body}</prosody>'
         "</speak>"
     )
 
