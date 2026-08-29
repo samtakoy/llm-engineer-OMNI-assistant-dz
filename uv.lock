@@ -605,7 +605,7 @@ requires-dist = [
     { name = "langchain-core", specifier = "==1.5.1" },
     { name = "langchain-openai", specifier = "==1.4.1" },
     { name = "langgraph", specifier = "==1.2.9" },
-    { name = "langgraph-checkpoint-sqlite", specifier = ">=3.1.1" },
+    { name = "langgraph-checkpoint-sqlite", specifier = "==3.1.1" },
     { name = "numpy", specifier = "==2.5.2" },
     { name = "openai", specifier = ">=2.45.0,<3.0.0" },
     { name = "pillow", specifier = "==12.3.0" },

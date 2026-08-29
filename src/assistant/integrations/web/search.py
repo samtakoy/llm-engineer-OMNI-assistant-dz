@@ -158,9 +158,8 @@ def _cache_key(query: str) -> str:
     """
     Приводит запрос к ключу записи.
 
-    Нормализация минимальная: обрезка краёв и сжатие повторных пробелов.
-    Регистр не трогается - выигрыш в попаданиях копеечный, а разные запросы
-    так можно склеить.
+    Запрос обрезается по краям, повторные пробелы сжимаются в один, регистр
+    приводится к нижнему.
 
     Аргументы:
         query: поисковый запрос как его составила модель.
@@ -168,7 +167,7 @@ def _cache_key(query: str) -> str:
     Возвращает:
         Ключ записи в кеше.
     """
-    return _REPEATED_SPACES.sub(" ", query.strip())
+    return _REPEATED_SPACES.sub(" ", query.strip()).lower()
 
 
 def _cached_results(cache: FileCache, key: str, max_results: int) -> list[SearchResult] | None:
