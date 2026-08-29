@@ -8,8 +8,7 @@
 from dataclasses import dataclass
 from pathlib import Path
 
-from assistant.graph.graph import run_research
-from assistant.graph.state import Answer, ResearchNotes
+from assistant.graph import Answer, ResearchNotes, run_research
 from assistant.integrations.llm.client import build_llm
 from assistant.integrations.llm.profiles import NodeRole
 from assistant.persona import (

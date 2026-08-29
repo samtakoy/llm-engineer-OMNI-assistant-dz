@@ -7,7 +7,7 @@ import argparse
 import sys
 from pathlib import Path
 
-from assistant.graph.graph import describe_nodes
+from assistant.graph import describe_nodes
 from assistant.integrations.listening import SILENCE_LEVEL, SpeechRecognizer, record
 from assistant.omni import run_omni_assistant
 from assistant.persona import PersonaMode
