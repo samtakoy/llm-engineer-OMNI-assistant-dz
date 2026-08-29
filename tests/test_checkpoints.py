@@ -29,6 +29,9 @@ class FakeStructured:
             return ResearchNotes(
                 summary = "сводка",
                 facts = ["первый факт", "второй факт"],
+                details = ["первая подробность"],
+                gaps = ["первый пропуск"],
+                handoff = "заметка ресёрчера",
                 confidence = "высокая",
                 sources = ["https://example.org"],
             )

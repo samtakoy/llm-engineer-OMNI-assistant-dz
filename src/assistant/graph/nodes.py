@@ -22,7 +22,12 @@ from assistant.graph.logs import (
     log_notes,
     log_round,
 )
-from assistant.graph.prompts import COLLECT_PROMPT, COMPOSE_PROMPT, RESEARCHER_SYSTEM_PROMPT
+from assistant.graph.prompts import (
+    COLLECT_PROMPT,
+    COLLECT_SYSTEM_PROMPT,
+    COMPOSE_PROMPT,
+    RESEARCHER_SYSTEM_PROMPT,
+)
 from assistant.graph.state import Answer, ResearchNotes, ResearchState
 from assistant.graph.tools import CALL_BLOCKED, RESEARCH_TOOLS
 
@@ -158,7 +163,7 @@ def collect_node(state: ResearchState) -> dict:
 
     notes = llm.invoke(
         [
-            SystemMessage(content = RESEARCHER_SYSTEM_PROMPT),
+            SystemMessage(content = COLLECT_SYSTEM_PROMPT),
             *state["messages"],
             HumanMessage(content = COLLECT_PROMPT),
         ]
@@ -168,11 +173,29 @@ def collect_node(state: ResearchState) -> dict:
     return {"notes": notes}
 
 
+def _as_list_block(items: list[str], empty_text: str) -> str:
+    """
+    Собирает список строк в блок опоры для узла изложения.
+
+    Аргументы:
+        items: строки опоры.
+        empty_text: текст, который встанет вместо пустого списка.
+
+    Возвращает:
+        Строки списком через перенос или empty_text, если список пуст.
+    """
+    if not items:
+        return empty_text
+
+    return "\n".join(f"- {item}" for item in items)
+
+
 def compose_node(state: ResearchState) -> dict:
     """
     Излагает собранные факты в виде, который запросил пользователь.
 
-    В контекст уходит только запрос и выжимка фактов, без истории поиска.
+    В контекст уходит запрос и опора, собранная узлом collect, без истории
+    поиска. Опора идёт размеченными блоками, задача - последней строкой.
 
     Аргументы:
         state: текущее состояние графа.
@@ -181,7 +204,6 @@ def compose_node(state: ResearchState) -> dict:
         Обновление состояния с полем answer.
     """
     notes = state["notes"]
-    facts = "\n".join(f"- {fact}" for fact in notes.facts)
 
     narrator_prompt = state["narrator_prompt"]
     system_prompt = COMPOSE_PROMPT.format(
@@ -195,11 +217,22 @@ def compose_node(state: ResearchState) -> dict:
             SystemMessage(content = system_prompt),
             HumanMessage(
                 content = (
-                    f"Запрос пользователя:\n{state['question']}\n\n"
-                    f"Сводка найденного:\n{notes.summary}\n\n"
-                    f"Собранные факты:\n{facts}\n\n"
-                    "Весь текст ответа - заголовки, вступление, разделы и "
-                    "завершение - пиши на языке запроса пользователя."
+                    f"<запрос>\n{state['question']}\n</запрос>\n\n"
+                    f"<порядок изложения>\n{notes.summary}\n</порядок изложения>\n\n"
+                    "<опора>\n"
+                    f"{_as_list_block(items = notes.facts, empty_text = 'фактов нет')}\n"
+                    "</опора>\n\n"
+                    "<подробности>\n"
+                    f"{_as_list_block(items = notes.details, empty_text = 'подробностей нет')}\n"
+                    "</подробности>\n\n"
+                    "<чего не нашлось>\n"
+                    f"{_as_list_block(items = notes.gaps, empty_text = 'пропусков не отмечено')}\n"
+                    "</чего не нашлось>\n\n"
+                    "<заметки>\n"
+                    f"{notes.handoff if notes.handoff else 'заметок нет'}\n"
+                    "</заметки>\n\n"
+                    f"Достоверность опоры: {notes.confidence}.\n\n"
+                    "Задача: изложи опору по запросу пользователя с учетом правил, запретов и указанной роли."
                 )
             ),
         ]

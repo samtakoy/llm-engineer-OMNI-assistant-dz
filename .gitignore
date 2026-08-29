@@ -19,3 +19,4 @@ wheels/
 
 # Записи вопросов с микрофона
 recordings/
+/logs/

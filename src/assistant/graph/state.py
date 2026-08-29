@@ -12,13 +12,30 @@ from langchain_core.messages import AnyMessage
 from langgraph.graph.message import add_messages
 from pydantic import BaseModel, Field
 
-# confidence пока никак не используется, будет его считать флагом склоняющим модель к самопроверке при ответе
 class ResearchNotes(BaseModel):
-    """Фактическая опора, собранная по источникам."""
+    """
+    Фактическая опора, собранная по источникам:
 
-    summary: str = Field(description = "Краткая сводка найденного")
+    facts дают проверяемый костяк,
+    details - живую конкретику,
+    gaps - границу, за которой начинается домысел,
+    handoff - требования к подаче, замеченные на этапе поиска.
+    """
+
+    summary: str = Field(
+        description = "О чём собранный материал и в каком порядке его логично излагать, без пересказа самих фактов"
+    )
     facts: list[str] = Field(
         description = "Отдельные факты, каждый одним-двумя предложениями, только из найденных материалов"
+    )
+    details: list[str] = Field(
+        description = "Наглядные важные подробности из материалов, например: цвета, звуки, запахи, размеры, сравнения"
+    )
+    gaps: list[str] = Field(
+        description = "О чём в найденных материалах данных не нашлось"
+    )
+    handoff: str = Field(
+        description = "Коротко важные заметки для писателя, который будет работать с собранными фактами"
     )
     confidence: Literal["высокая", "средняя", "низкая"] = Field(
         description = "Насколько найденные материалы подтверждают собранное"
