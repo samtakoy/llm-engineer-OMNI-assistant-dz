@@ -1,10 +1,24 @@
 """
-Схемы структурированного вывода пакета персонажа.
+Схемы структурированного вывода пакета персонажа и режимы его сборки.
 """
 
+from enum import Enum
 from typing import Literal
 
 from pydantic import BaseModel, Field
+
+
+class PersonaMode(Enum):
+    """
+    Способ превратить облик в указание рассказчику.
+
+    Атрибуты:
+        FREE: одна свободная фраза.
+        STRUCTURED: поля схемы Persona, разложенные по шаблону.
+    """
+
+    FREE = "free"
+    STRUCTURED = "structured"
 
 
 class Persona(BaseModel):

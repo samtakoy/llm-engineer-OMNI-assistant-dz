@@ -158,3 +158,18 @@ sudo apt install libportaudio2
 ```
 WEB_CACHE_BYPASS=1 .venv/bin/python -m assistant.main "вопрос"
 ```
+
+## Рассказчик
+
+```
+.venv/bin/python -m assistant.main "вопрос"
+
+.venv/bin/python -m assistant.main "ты гид по пятигорску. нужно  собрать информацию для экскурсии на гору машук в пятигорске и составить красочное описание по маршруту для детей 7-8 лет" --narrator "угрюмый злой халк"
+
+.venv/bin/python -m assistant.main "ты гид по пятигорску. нужно  собрать информацию для экскурсии на гору машук в пятигорске и составить красочное описание по маршруту для детей 7-8 лет" --image docs/persona_images/hulk/images.jpeg
+
+.venv/bin/python -m assistant.main "ты гид по пятигорску. нужно  собрать информацию для экскурсии на гору машук в пятигорске и составить красочное описание по маршруту для детей 7-8 лет" --image docs/persona_images/hulk/images.jpeg --persona-mode structured
+```
+
+
+

@@ -1,5 +1,5 @@
 """
-Сборка промпта рассказчика из полей персонажа.
+Сборка промпта рассказчика: из полей персонажа либо из одной свободной фразы.
 """
 
 from .prompts import NARRATOR_TEMPLATE
@@ -8,7 +8,7 @@ from .schemas import Persona
 
 def render_narrator_prompt(persona: Persona) -> str:
     """
-    Собирает блок про рассказчика для системного сообщения узла изложения.
+    Собирает блок про рассказчика в виде структуры.
 
     Аргументы:
         persona: рассказчик, выведенный из облика.
@@ -25,3 +25,4 @@ def render_narrator_prompt(persona: Persona) -> str:
         favourite_words = ", ".join(persona.favourite_words),
         attitude_to_subject = persona.attitude_to_subject,
     )
+

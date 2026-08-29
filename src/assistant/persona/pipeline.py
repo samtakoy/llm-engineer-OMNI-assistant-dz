@@ -19,7 +19,7 @@ from ..variables import (
     VISION_JPEG_QUALITY,
     VISION_MAX_SIDE,
 )
-from .prompts import LOOK_PROMPT, PERSONA_PROMPT
+from .prompts import LOOK_PROMPT, NARRATOR_STYLE_PROMPT, PERSONA_PROMPT
 from .schemas import Persona
 
 # Подкаталог кеша и версия формата записи. Версия поднимается при смене
@@ -144,3 +144,36 @@ def build_persona(llm: ChatOpenAI, look: str) -> tuple[Persona | None, str]:
         return None, f"модель не ответила по схеме: {type(error).__name__}"
 
     return persona, ""
+
+
+def build_narrator_style(llm: ChatOpenAI, look: str) -> tuple[str, str]:
+    """
+    Сжимает описание облика до одной фразы про голос рассказчика.
+
+    Аргументы:
+        llm: клиент текстовой модели.
+        look: описание облика персонажа.
+
+    Возвращает:
+        Пару «фраза, причина неудачи». При успехе причина пустая, при неудаче
+        фраза пустая.
+    """
+    if not look.strip():
+        return "", "описание облика пустое"
+
+    try:
+        message = llm.invoke(
+            [
+                SystemMessage(content = NARRATOR_STYLE_PROMPT),
+                HumanMessage(content = f"Описание облика:\n{look}"),
+            ]
+        )
+    except Exception as error:
+        print(f"[персона] вызов модели не удался: {type(error).__name__}: {error}")
+        return "", f"модель не ответила: {type(error).__name__}"
+
+    style = message.text.strip()
+    if not style:
+        return "", "модель вернула пустой ответ"
+
+    return style, ""

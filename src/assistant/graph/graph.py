@@ -431,7 +431,10 @@ def _compose_node(state: ResearchState) -> dict:
     facts = "\n".join(f"- {fact}" for fact in notes.facts)
 
     narrator_prompt = state["narrator_prompt"]
-    system_prompt = f"{COMPOSE_PROMPT}\n{narrator_prompt}" if narrator_prompt else COMPOSE_PROMPT
+    # system_prompt = f"{COMPOSE_PROMPT}\n{narrator_prompt}" if narrator_prompt else COMPOSE_PROMPT
+    system_prompt = COMPOSE_PROMPT.format(
+        style = narrator_prompt if narrator_prompt else "Нейтральный"
+    )
 
     llm = _build_compose_llm().with_structured_output(Answer, method = "json_schema")
 

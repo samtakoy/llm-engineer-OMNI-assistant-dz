@@ -1,6 +1,6 @@
 """
 Точка входа: вопрос из командной строки, голосом или записью, ответ на экран.
-Фотография персонажа задаёт манеру изложения.
+Манеру изложения задаёт фотография персонажа либо фраза о рассказчике.
 """
 
 import argparse
@@ -10,7 +10,8 @@ from pathlib import Path
 from assistant.graph.graph import describe_nodes
 from assistant.integrations.listening import SILENCE_LEVEL, SpeechRecognizer, record
 from assistant.omni import run_omni_assistant
-from assistant.variables import LISTENING_CONFIG, LLM_PROVIDER
+from assistant.persona import PersonaMode
+from assistant.variables import LISTENING_CONFIG, LLM_PROVIDER, PERSONA_MODE
 
 # Значение --record без числа: писать до нажатия Enter.
 _RECORD_UNTIL_ENTER = 0.0
@@ -36,6 +37,17 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument(
         "--image",
         help = "фотография персонажа, от лица которого ведётся экскурсия",
+    )
+    parser.add_argument(
+        "--narrator",
+        metavar = "ФРАЗА",
+        help = "рассказчик фразой, например «угрюмый халк»; вместо --image",
+    )
+    parser.add_argument(
+        "--persona-mode",
+        choices = [mode.value for mode in PersonaMode],
+        default = PERSONA_MODE,
+        help = "как строить рассказчика по фотографии: фразой или полями схемы",
     )
     parser.add_argument(
         "--record",
@@ -147,8 +159,14 @@ def main() -> None:
     for line in describe_nodes():
         print(f"  {line}")
 
+    if arguments.image and arguments.narrator:
+        print("Рассказчик задаётся одним способом: --image или --narrator.")
+        sys.exit(1)
+
     outcome = run_omni_assistant(
         image_path = Path(arguments.image) if arguments.image else None,
+        narrator_style = arguments.narrator,
+        persona_mode = PersonaMode(arguments.persona_mode),
         question = question,
     )
 
@@ -157,9 +175,6 @@ def main() -> None:
         sys.exit(1)
 
     answer, notes = outcome.answer, outcome.notes
-
-    if outcome.persona is not None:
-        print(f"\n[рассказчик] {outcome.persona.name}: {outcome.persona.speech_manner}")
 
     print(f"\n=== {answer.title} ===\n")
     print(answer.intro)

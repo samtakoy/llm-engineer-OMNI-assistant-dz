@@ -89,6 +89,13 @@ VISION_CACHE_DIR = _cache_directory(
 VISION_CACHE_TTL_DAYS = int(os.getenv("VISION_CACHE_TTL_DAYS", "0"))
 VISION_CACHE_BYPASS = os.getenv("VISION_CACHE_BYPASS", "").strip().lower() in ("1", "true", "yes")
 
+# --- Рассказчик ----------------------------------------------------------
+# Способ сборки рассказчика по фотографии: free - одна фраза,
+# structured - поля схемы Persona.
+# Значение разбирает точка входа: пакет persona читает variables, и обратный
+# импорт замкнул бы кольцо.
+PERSONA_MODE = os.getenv("PERSONA_MODE", "free").strip().lower()
+
 # --- Веб-слой ------------------------------------------------------------
 # Строка User-Agent для запросов к сайтам. Wikimedia и часть других площадок
 # отвечают 403 на agent без контакта: в скобках должен стоять адрес проекта
