@@ -17,7 +17,7 @@ from assistant.graph import (
 )
 from assistant.integrations.listening import SILENCE_LEVEL, SpeechRecognizer, record
 from assistant.observability import setup_console_output
-from assistant.omni import run_omni_assistant
+from assistant.omni import OmniOutcome, run_omni_assistant
 from assistant.persona import PersonaMode
 from assistant.variables import LISTENING_CONFIG, LLM_PROVIDER, PERSONA_MODE
 
@@ -56,6 +56,16 @@ def build_parser() -> argparse.ArgumentParser:
         choices = [mode.value for mode in PersonaMode],
         default = PERSONA_MODE,
         help = "как строить рассказчика по фотографии: фразой или полями схемы",
+    )
+    parser.add_argument(
+        "--speak",
+        action = "store_true",
+        help = "озвучить готовый текст голосом персонажа",
+    )
+    parser.add_argument(
+        "--markup",
+        action = "store_true",
+        help = "перед озвучкой разметить текст паузами и ударениями; только с --speak",
     )
     parser.add_argument(
         "--resume",
@@ -209,6 +219,26 @@ def print_answer(answer: Answer, notes: ResearchNotes) -> None:
         print(f"  - {url}")
 
 
+def print_timing(outcome: OmniOutcome) -> None:
+    """
+    Печатает файлы с озвучкой и таблицу длительностей этапов.
+
+    Аргументы:
+        outcome: исход прогона.
+
+    Возвращает:
+        Ничего.
+    """
+    if outcome.audio_paths:
+        print("\n--- озвучка ---")
+        for path in outcome.audio_paths:
+            print(f"  {path}")
+
+    table = outcome.timing.render_table()
+    if table:
+        print(f"\n--- длительности ---\n{table}")
+
+
 def run_resume(arguments: argparse.Namespace) -> None:
     """
     Переигрывает записанный прогон с указанного узла.
@@ -277,6 +307,8 @@ def main() -> None:
         narrator_style = arguments.narrator,
         persona_mode = PersonaMode(arguments.persona_mode),
         question = question,
+        is_speech_on = arguments.speak,
+        is_markup_on = arguments.markup,
     )
 
     if outcome.error:
@@ -284,6 +316,7 @@ def main() -> None:
         sys.exit(1)
 
     print_answer(answer = outcome.answer, notes = outcome.notes)
+    print_timing(outcome = outcome)
 
 
 if __name__ == "__main__":

@@ -97,15 +97,30 @@ class SpeechSynthesizer:
                 seconds = 0.0,
             )
 
+        ssml = self._prepare_ssml(text = spoken_text, settings = settings)
+
         try:
-            audio = self._apply_tts(model = model, text = spoken_text, settings = settings)
+            audio = self._apply_tts(model = model, text = spoken_text, ssml = ssml, settings = settings)
         except Exception as error:
             print(f"[speaking] озвучка не удалась: {type(error).__name__}: {error}")
-            return SynthesisOutcome(
-                path = None,
-                error = f"озвучка оборвалась: {type(error).__name__}",
-                seconds = 0.0,
-            )
+            if ssml is None:
+                return SynthesisOutcome(
+                    path = None,
+                    error = f"озвучка оборвалась: {type(error).__name__}",
+                    seconds = 0.0,
+                )
+
+            print(f"[speaking] разметка: {ssml}")
+            print("[speaking] повтор чистым текстом")
+            try:
+                audio = self._apply_tts(model = model, text = spoken_text, ssml = None, settings = settings)
+            except Exception as repeat_error:
+                print(f"[speaking] повтор не удался: {type(repeat_error).__name__}: {repeat_error}")
+                return SynthesisOutcome(
+                    path = None,
+                    error = f"озвучка оборвалась: {type(repeat_error).__name__}",
+                    seconds = 0.0,
+                )
 
         audio, effect_error = apply_effect(
             audio = audio,
@@ -123,22 +138,40 @@ class SpeechSynthesizer:
 
         return SynthesisOutcome(path = output_path, error = "", seconds = seconds)
 
-    def _apply_tts(self, model: Any, text: str, settings: VoiceSettings) -> Any:
+    def _prepare_ssml(self, text: str, settings: VoiceSettings) -> str | None:
         """
-        Зовёт синтез: чистым текстом либо разметкой ssml.
+        Готовит разметку ssml, если она нужна.
 
         Аргументы:
-            model: загруженная модель silero.
             text: что произнести, с разметкой или без неё.
             settings: голос, темп и высота.
 
         Возвращает:
-            Отсчёты звука тензором в диапазоне от минус единицы до единицы.
+            Строку ssml либо None, когда хватает чистого текста: разметки в
+            тексте нет, темп и высота нейтральные.
         """
         body, has_markup = sanitize_markup(text = text)
         is_neutral = settings.rate == _NEUTRAL_PROSODY and settings.pitch == _NEUTRAL_PROSODY
 
         if is_neutral and not has_markup:
+            return None
+
+        return _render_ssml(body = wrap_speech_parts(body = body), settings = settings)
+
+    def _apply_tts(self, model: Any, text: str, ssml: str | None, settings: VoiceSettings) -> Any:
+        """
+        Зовёт синтез: чистым текстом либо готовой разметкой ssml.
+
+        Аргументы:
+            model: загруженная модель silero.
+            text: что произнести без разметки.
+            ssml: готовая разметка; None - озвучивать чистым текстом.
+            settings: голос, темп и высота.
+
+        Возвращает:
+            Отсчёты звука тензором в диапазоне от минус единицы до единицы.
+        """
+        if ssml is None:
             return model.apply_tts(
                 text = text,
                 speaker = settings.speaker,
@@ -148,7 +181,7 @@ class SpeechSynthesizer:
             )
 
         return model.apply_tts(
-            ssml_text = _render_ssml(body = wrap_speech_parts(body = body), settings = settings),
+            ssml_text = ssml,
             speaker = settings.speaker,
             sample_rate = self._config.sample_rate,
         )
@@ -220,6 +253,12 @@ class SpeechSynthesizer:
         except Exception as error:
             print(f"[speaking] модель не загрузилась: {type(error).__name__}: {error}")
             return None, f"модель {self._config.model_id} не загрузилась"
+
+        # На пути ssml модель зовёт convert_to_orig без проверки ext_alph на None,
+        # и латинская буква в тексте роняет разбор. Пустой словарь включает ту же
+        # ветку «ничего не заменять», что стоит на пути чистого текста.
+        if getattr(model, "ext_alph", None) is None:
+            model.ext_alph = {}
 
         self._model = model
         return self._model, ""
