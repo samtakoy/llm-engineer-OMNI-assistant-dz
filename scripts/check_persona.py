@@ -149,14 +149,14 @@ def main() -> None:
 
     vision_llm = build_llm(
         role = NodeRole.VISION,
-        is_debug_reasoning_on = False,
+        is_reasoning_forced = False,
         model = VISION_MODEL,
         provider = VISION_PROVIDER,
     )
     print(f"--- облик: [{VISION_PROVIDER}] {VISION_MODEL}, картинок {len(images)}\n", flush = True)
     looks = collect_looks(llm = vision_llm, images = images)
 
-    writing_llm = build_llm(role = NodeRole.WRITING, is_debug_reasoning_on = False, model = None)
+    writing_llm = build_llm(role = NodeRole.WRITING, is_reasoning_forced = False, model = None)
     print(f"--- персонаж: {writing_llm.model_name}, описаний {len(looks)}\n", flush = True)
     build_personas(llm = writing_llm, looks = looks)
 

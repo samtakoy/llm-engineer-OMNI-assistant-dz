@@ -157,7 +157,7 @@ def main() -> None:
     images = collect_images(path = Path(arguments.path), limit = arguments.limit)
     llm = build_llm(
         role = NodeRole.VISION,
-        is_debug_reasoning_on = False,
+        is_reasoning_forced = False,
         model = VISION_MODEL,
         provider = VISION_PROVIDER,
     )

@@ -9,18 +9,22 @@ from .prompts import (
     NARRATOR_STYLE_PROMPT,
     NARRATOR_TEMPLATE,
     PERSONA_PROMPT,
+    VOICE_PROMPT,
 )
 from .schemas import Persona, PersonaMode
+from .voice import pick_voice
 
 __all__ = [
     "describe_look",
     "build_persona",
     "build_narrator_style",
     "render_narrator_prompt",
+    "pick_voice",
     "Persona",
     "PersonaMode",
     "LOOK_PROMPT",
     "PERSONA_PROMPT",
     "NARRATOR_TEMPLATE",
     "NARRATOR_STYLE_PROMPT",
+    "VOICE_PROMPT",
 ]
