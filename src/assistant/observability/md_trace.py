@@ -215,6 +215,15 @@ class MarkdownTrace(BaseCallbackHandler):
 
     # --- служебное --------------------------------------------------------
 
+    def path(self) -> Path:
+        """
+        Отдаёт файл журнала.
+
+        Возвращает:
+            Путь к файлу.
+        """
+        return self._path
+
     def note(self, text: str) -> None:
         """
         Пишет запись приложения - то, что не является событием LangChain.

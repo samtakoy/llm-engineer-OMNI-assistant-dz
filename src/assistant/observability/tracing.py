@@ -6,44 +6,57 @@
 """
 
 import logging
+from collections.abc import Iterator
+from contextlib import contextmanager
 from pathlib import Path
 from typing import Any
-
-from langchain_core.callbacks import BaseCallbackHandler
 
 from assistant.observability.console import PACKAGE_LOGGER_NAME
 from assistant.observability.md_trace import MarkdownTrace, NoteHandler
 from assistant.variables import ENABLE_ALL_REASONING, LLM_PROVIDER, TRACE_DIR
 
 
-def build_callbacks(
-    node_rows: list[str],
+@contextmanager
+def trace_run(
     trace_id: str,
+    node_rows: list[str],
     origin_rows: list[str],
-) -> list[BaseCallbackHandler]:
+) -> Iterator[MarkdownTrace | None]:
     """
-    Собирает список слушателей для вызова графа.
+    Заводит журнал на прогон и снимает обработчик logging на выходе.
+
+    Журнал живёт весь прогон, а не только вызов графа: этапы вокруг графа
+    пишут в тот же файл через logging.
 
     Аргументы:
-        node_rows: описание моделей по узлам, строкой на узел; идёт в шапку.
         trace_id: имя файла журнала без расширения.
+        node_rows: описание моделей по узлам, строкой на узел; идёт в шапку.
         origin_rows: строки о происхождении прогона; для продолжения - откуда
             и с какого узла, для обычного прогона пустой список.
 
     Возвращает:
-        Список слушателей. Пустой, если журнал выключен.
+        Контекстный менеджер с журналом либо None, если журнал выключен.
     """
     if TRACE_DIR is None:
-        return []
+        yield None
+        return
 
-    return [
-        _build_md_trace(
-            directory = TRACE_DIR,
-            node_rows = node_rows,
-            trace_id = trace_id,
-            origin_rows = origin_rows,
-        )
-    ]
+    trace = _build_md_trace(
+        directory = TRACE_DIR,
+        node_rows = node_rows,
+        trace_id = trace_id,
+        origin_rows = origin_rows,
+    )
+
+    handler = NoteHandler(trace = trace)
+    handler.setFormatter(logging.Formatter("%(message)s"))
+    logger = logging.getLogger(PACKAGE_LOGGER_NAME)
+    logger.addHandler(handler)
+
+    try:
+        yield trace
+    finally:
+        logger.removeHandler(handler)
 
 
 def _build_md_trace(
@@ -53,7 +66,7 @@ def _build_md_trace(
     origin_rows: list[str],
 ) -> MarkdownTrace:
     """
-    Заводит журнал на текущий прогон и подключает к нему logging.
+    Заводит журнал на текущий прогон.
 
     Аргументы:
         directory: каталог журналов.
@@ -64,19 +77,12 @@ def _build_md_trace(
     Возвращает:
         Готовый слушатель.
     """
-    trace = MarkdownTrace(
+    return MarkdownTrace(
         path = directory / f"{trace_id}.md",
         header_rows = [*origin_rows, *_header_rows(node_rows = node_rows)],
         describe_request = _describe_request,
         summarize_result = _summarize_result,
     )
-
-    # Строки узлов идут через logging и событиями LangChain не являются:
-    # обработчик уводит их в тот же файл записями kind=note.
-    handler = NoteHandler(trace = trace)
-    handler.setFormatter(logging.Formatter("%(message)s"))
-    logging.getLogger(PACKAGE_LOGGER_NAME).addHandler(handler)
-    return trace
 
 
 def _header_rows(node_rows: list[str]) -> list[str]:

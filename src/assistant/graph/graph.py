@@ -15,17 +15,16 @@
 
 from datetime import datetime
 
+from langchain_core.callbacks import BaseCallbackHandler
 from langchain_core.messages import HumanMessage
 from langgraph.checkpoint.base import BaseCheckpointSaver
 from langgraph.graph import END, START, StateGraph
 
 from assistant.graph.budget import MAX_TOOL_CALLS_PER_RUN
 from assistant.graph.checkpoints import open_checkpointer
-from assistant.graph.llms import describe_nodes
 from assistant.graph.logs import log_checkpoints_off, log_resume, log_run_id
 from assistant.graph.nodes import agent_node, collect_node, compose_node, tools_node
 from assistant.graph.state import Answer, ResearchNotes, ResearchState
-from assistant.observability.tracing import build_callbacks
 from assistant.variables import CHECKPOINT_DIR
 
 # Узлы, с которых можно продолжить прогон.
@@ -72,7 +71,7 @@ def build_graph(checkpointer: BaseCheckpointSaver | None):
     return builder.compile(checkpointer = checkpointer)
 
 
-def _new_run_id() -> str:
+def new_run_id() -> str:
     """
     Заводит идентификатор прогона.
 
@@ -82,32 +81,32 @@ def _new_run_id() -> str:
     return datetime.now().strftime("%Y%m%d-%H%M%S")
 
 
-def _run_config(run_id: str, trace_id: str, origin_rows: list[str]) -> dict:
+def _run_config(run_id: str, callbacks: list[BaseCallbackHandler]) -> dict:
     """
     Собирает конфиг вызова графа.
 
     Аргументы:
         run_id: ключ снимков; у продолжения тот же, что у исходного прогона.
-        trace_id: имя файла журнала; у продолжения своё.
-        origin_rows: строки о происхождении прогона для шапки журнала.
+        callbacks: слушатели прогона; журнал заводит вызывающий.
 
     Возвращает:
-        Конфиг с ключом снимков, потолком рекурсии и слушателями журнала.
+        Конфиг с ключом снимков, потолком рекурсии и слушателями.
     """
     # Запас по рекурсии: раунд стоит два шага (agent + tools), плюс финальный
     # agent и два узла вывода.
     return {
         "configurable": {"thread_id": run_id},
         "recursion_limit": MAX_TOOL_CALLS_PER_RUN * 2 + 5,
-        "callbacks": build_callbacks(
-            node_rows = describe_nodes(),
-            trace_id = trace_id,
-            origin_rows = origin_rows,
-        ),
+        "callbacks": callbacks,
     }
 
 
-def run_research(question: str, narrator_prompt: str | None) -> tuple[Answer, ResearchNotes]:
+def run_research(
+    question: str,
+    narrator_prompt: str | None,
+    run_id: str,
+    callbacks: list[BaseCallbackHandler],
+) -> tuple[Answer, ResearchNotes]:
     """
     Прогоняет вопрос через граф.
 
@@ -115,11 +114,12 @@ def run_research(question: str, narrator_prompt: str | None) -> tuple[Answer, Re
         question: вопрос пользователя.
         narrator_prompt: блок про рассказчика для узла изложения; None -
             изложение без персонажа.
+        run_id: идентификатор прогона: ключ снимков и имя файла журнала.
+        callbacks: слушатели прогона.
 
     Возвращает:
         Кортеж из итогового текста и фактической опоры, на которой он построен.
     """
-    run_id = _new_run_id()
     checkpointer = open_checkpointer(directory = CHECKPOINT_DIR)
 
     log_run_id(run_id = run_id)
@@ -136,7 +136,7 @@ def run_research(question: str, narrator_prompt: str | None) -> tuple[Answer, Re
 
     final_state = build_graph(checkpointer = checkpointer).invoke(
         initial_state,
-        config = _run_config(run_id = run_id, trace_id = run_id, origin_rows = []),
+        config = _run_config(run_id = run_id, callbacks = callbacks),
     )
 
     return final_state["answer"], final_state["notes"]
@@ -146,6 +146,7 @@ def resume_research(
     run_id: str,
     from_node: str,
     narrator_prompt: str | None,
+    callbacks: list[BaseCallbackHandler],
 ) -> tuple[Answer | None, ResearchNotes | None, str]:
     """
     Продолжает записанный прогон с указанного узла.
@@ -154,6 +155,7 @@ def resume_research(
         run_id: идентификатор прогона.
         from_node: узел, с которого продолжать.
         narrator_prompt: новый блок про рассказчика; None - взять из снимка.
+        callbacks: слушатели прогона.
 
     Возвращает:
         Кортеж из итогового текста, фактической опоры и причины неудачи.
@@ -179,14 +181,9 @@ def resume_research(
     if narrator_prompt is not None:
         resume_from = graph.update_state(resume_from, values = {"narrator_prompt": narrator_prompt})
 
-    # Журнал у продолжения свой: имя исходного прогона плюс время рестарта.
-    # Исходный файл остаётся нетронутым, а происхождение видно и в имени, и в шапке.
-    trace_id = f"{run_id}+{_new_run_id()}"
-    origin_rows = [f"- продолжение прогона `{run_id}` с узла `{from_node}`"]
-
     # Слияние поузловое: в configurable снимка лежит checkpoint_id, без него
     # прогон пошёл бы с последнего состояния, а не с выбранного.
-    config = _run_config(run_id = run_id, trace_id = trace_id, origin_rows = origin_rows)
+    config = _run_config(run_id = run_id, callbacks = callbacks)
     config["configurable"] = {**config["configurable"], **resume_from["configurable"]}
 
     final_state = graph.invoke(None, config = config)

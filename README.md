@@ -159,6 +159,19 @@ sudo apt install libportaudio2
 WEB_CACHE_BYPASS=1 .venv/bin/python -m assistant.main "вопрос"
 ```
 
+### Речевой выход
+
+| Переменная | По умолчанию | Что задаёт |
+| --- | --- | --- |
+| `SPEAKING_MODEL_ID` | `v5_5_ru` | Версия модели silero. Набор голосов принадлежит версии. |
+| `SPEAKING_LANGUAGE` | `ru` | Язык модели синтеза. |
+| `SPEAKING_DEVICE` | `auto` | Устройство синтеза: `auto`, `cpu`, `cuda`. |
+| `SPEAKING_SAMPLE_RATE` | `48000` | Частота дискретизации: `8000`, `24000`, `48000`. |
+| `SPEAKING_PUT_ACCENT` | вкл | Расставлять ударения. Действует только при озвучке чистым текстом. |
+| `SPEAKING_PUT_YO` | вкл | Восстанавливать букву ё. Ограничение то же. |
+| `SPEAKING_HUB_DIR` | `.cache/silero` | Куда torch.hub кладёт код silero и файл весов. Пусто - каталог torch по умолчанию. |
+| `SPOKEN_DIR` | `spoken` | Куда складывать озвученные файлы. |
+
 ## Рассказчик
 
 ```
@@ -174,6 +187,27 @@ WEB_CACHE_BYPASS=1 .venv/bin/python -m assistant.main "вопрос"
 
 
 
+
+## Голос на выходе
+
+```
+# экскурсия голосом персонажа с фотографии
+.venv/bin/python -m assistant.main "экскурсия по горе машук для детей 7-8 лет" --image docs/persona_images/hulk/images.jpeg --persona-mode structured --speak
+
+# то же, но текст перед озвучкой размечается паузами и ударениями
+.venv/bin/python -m assistant.main "экскурсия по горе машук для детей 7-8 лет" --image docs/persona_images/hulk/images.jpeg --persona-mode structured --speak --markup
+
+# без фотографии: первый голос модели, нейтральные темп и высота
+.venv/bin/python -m assistant.main "Когда вышел Django 6.0?" --speak
+```
+
+Озвучка идёт кусками - вступление, каждый раздел, завершение. Путь к файлу
+печатается сразу, как кусок готов: первый можно слушать, пока считаются
+остальные. Файлы падают в `spoken/` именем по дате и номеру куска.
+
+Первый запуск качает модель синтеза в `.cache/silero`: код silero и файл весов,
+для `v5_5_ru` около 145 МБ. Дальше синтез идёт быстрее реального времени, а
+время съедает разметка: она стоит вызова модели на каждый кусок.
 
 ## Прогон с чекпоинта
 

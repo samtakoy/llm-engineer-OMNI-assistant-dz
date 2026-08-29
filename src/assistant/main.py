@@ -13,10 +13,11 @@ from assistant.graph import (
     ResearchNotes,
     describe_nodes,
     list_runs,
+    new_run_id,
     resume_research,
 )
 from assistant.integrations.listening import SILENCE_LEVEL, SpeechRecognizer, record
-from assistant.observability import setup_console_output
+from assistant.observability import setup_console_output, trace_run
 from assistant.omni import OmniOutcome, run_omni_assistant
 from assistant.persona import PersonaMode
 from assistant.variables import LISTENING_CONFIG, LLM_PROVIDER, PERSONA_MODE
@@ -221,7 +222,7 @@ def print_answer(answer: Answer, notes: ResearchNotes) -> None:
 
 def print_timing(outcome: OmniOutcome) -> None:
     """
-    Печатает файлы с озвучкой и таблицу длительностей этапов.
+    Печатает файлы с озвучкой, таблицу длительностей и путь к журналу прогона.
 
     Аргументы:
         outcome: исход прогона.
@@ -237,6 +238,9 @@ def print_timing(outcome: OmniOutcome) -> None:
     table = outcome.timing.render_table()
     if table:
         print(f"\n--- длительности ---\n{table}")
+
+    if outcome.trace_path is not None:
+        print(f"\n--- журнал прогона ---\n  {outcome.trace_path}")
 
 
 def run_resume(arguments: argparse.Namespace) -> None:
@@ -258,11 +262,22 @@ def run_resume(arguments: argparse.Namespace) -> None:
         print("К --resume нужен --from: с какого узла продолжать.")
         sys.exit(1)
 
-    answer, notes, error = resume_research(
-        run_id = arguments.resume,
-        from_node = arguments.from_node,
-        narrator_prompt = arguments.narrator,
-    )
+    # Журнал у продолжения свой: имя исходного прогона плюс время рестарта.
+    # Исходный файл остаётся нетронутым, а происхождение видно и в имени, и в шапке.
+    trace_id = f"{arguments.resume}+{new_run_id()}"
+    origin_rows = [f"- продолжение прогона `{arguments.resume}` с узла `{arguments.from_node}`"]
+
+    with trace_run(
+        trace_id = trace_id,
+        node_rows = describe_nodes(),
+        origin_rows = origin_rows,
+    ) as trace:
+        answer, notes, error = resume_research(
+            run_id = arguments.resume,
+            from_node = arguments.from_node,
+            narrator_prompt = arguments.narrator,
+            callbacks = [trace] if trace is not None else [],
+        )
 
     if error:
         print(f"Переиграть прогон не вышло: {error}")

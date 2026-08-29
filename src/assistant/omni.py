@@ -11,7 +11,7 @@ from pathlib import Path
 
 from langchain_openai import ChatOpenAI
 
-from assistant.graph import Answer, ResearchNotes, run_research
+from assistant.graph import Answer, ResearchNotes, describe_nodes, new_run_id, run_research
 from assistant.integrations.llm.client import build_llm
 from assistant.integrations.llm.profiles import NodeRole
 from assistant.integrations.speaking import (
@@ -19,6 +19,20 @@ from assistant.integrations.speaking import (
     SpeechSynthesizer,
     VoiceSettings,
 )
+from assistant.logs import (
+    log_look,
+    log_markup,
+    log_markup_skipped,
+    log_narrator_style,
+    log_persona,
+    log_speech_failed,
+    log_spoken,
+    log_timing,
+    log_voice,
+    log_voice_fallback,
+    log_voices_missing,
+)
+from assistant.observability import trace_run
 from assistant.persona import (
     Persona,
     PersonaMode,
@@ -51,6 +65,7 @@ class OmniOutcome:
         narrator_prompt: блок про рассказчика, ушедший в узел изложения; пустая
             строка, если рассказчик не задан.
         look: описание облика с фотографии; пустая строка, если фотографии не было.
+        trace_path: файл журнала прогона; None, если журнал выключен.
         voice: настройки голоса; None, если озвучки не было.
         audio_paths: файлы с озвучкой по кускам, в порядке произнесения.
         timing: замеры длительности этапов.
@@ -62,6 +77,7 @@ class OmniOutcome:
     persona: Persona | None
     narrator_prompt: str
     look: str
+    trace_path: Path | None
     voice: VoiceSettings | None
     audio_paths: list[Path]
     timing: Stopwatch
@@ -98,6 +114,8 @@ def build_narrator_from_image(
     if error:
         return "", None, "", error
 
+    log_look(look = look)
+
     writing_llm = build_llm(
         role = NodeRole.WRITING,
         is_reasoning_forced = ENABLE_ALL_REASONING,
@@ -111,7 +129,7 @@ def build_narrator_from_image(
         if error:
             return "", None, look, error
 
-        print(f"[рассказчик]\n{style}")
+        log_narrator_style(style = style)
         return style, None, look, ""
 
     # описание рассказчика в виде структурированного разложения по осям
@@ -120,7 +138,7 @@ def build_narrator_from_image(
     if error:
         return "", None, look, error
 
-    print(f"[рассказчик] {persona.name}: {persona.speech_manner}")
+    log_persona(persona = persona)
     return render_narrator_prompt(persona = persona), persona, look, ""
 
 
@@ -194,9 +212,10 @@ def speak_answer(
             with timing.stage(name = f"разметка {index}"):
                 marked, error = mark_up_speech(llm = llm, persona = persona, text = piece)
             if error:
-                print(f"[озвучка] кусок {index} без разметки: {error}")
+                log_markup_skipped(index = index, reason = error)
             else:
                 spoken_text = marked
+                log_markup(index = index, marked_text = marked)
 
         with timing.stage(name = f"озвучка {index}"):
             outcome = synthesizer.synthesize(
@@ -206,10 +225,10 @@ def speak_answer(
             )
 
         if outcome.error:
-            print(f"[озвучка] кусок {index} не озвучен: {outcome.error}")
+            log_speech_failed(index = index, reason = outcome.error)
             continue
 
-        print(f"[озвучка] {outcome.path}, звучание {outcome.seconds:.1f} с")
+        log_spoken(index = index, path = outcome.path, seconds = outcome.seconds)
         paths.append(outcome.path)
 
     return paths
@@ -242,60 +261,71 @@ def run_omni_assistant(
         Исход прогона: текст экскурсии с опорой и озвучкой либо причина неудачи.
     """
     timing = Stopwatch()
-    persona: Persona | None = None
-    narrator_prompt = ""
-    look = ""
+    run_id = new_run_id()
 
-    if narrator_style is not None:
-        narrator_prompt = narrator_style
-        print(f"[рассказчик]\n{narrator_prompt}")
-    elif image_path is not None:
-        narrator_prompt, persona, look, error = build_narrator_from_image(
-            image_path = image_path,
-            persona_mode = persona_mode,
-            timing = timing,
-        )
-        if error:
-            return OmniOutcome(
-                answer = None,
-                notes = None,
-                persona = None,
-                narrator_prompt = "",
-                look = look,
-                voice = None,
-                audio_paths = [],
+    with trace_run(trace_id = run_id, node_rows = describe_nodes(), origin_rows = []) as trace:
+        trace_path = trace.path() if trace is not None else None
+        persona: Persona | None = None
+        narrator_prompt = ""
+        look = ""
+
+        if narrator_style is not None:
+            narrator_prompt = narrator_style
+            log_narrator_style(style = narrator_prompt)
+        elif image_path is not None:
+            narrator_prompt, persona, look, error = build_narrator_from_image(
+                image_path = image_path,
+                persona_mode = persona_mode,
                 timing = timing,
-                error = error,
+            )
+            if error:
+                log_timing(timing = timing)
+                return OmniOutcome(
+                    answer = None,
+                    notes = None,
+                    persona = None,
+                    narrator_prompt = "",
+                    look = look,
+                    trace_path = trace_path,
+                    voice = None,
+                    audio_paths = [],
+                    timing = timing,
+                    error = error,
+                )
+
+        with timing.stage(name = "ресёрч"):
+            answer, notes = run_research(
+                question = question,
+                narrator_prompt = narrator_prompt or None,
+                run_id = run_id,
+                callbacks = [trace] if trace is not None else [],
             )
 
-    with timing.stage(name = "ресёрч"):
-        answer, notes = run_research(
-            question = question,
-            narrator_prompt = narrator_prompt or None,
-        )
+        voice: VoiceSettings | None = None
+        audio_paths: list[Path] = []
 
-    voice: VoiceSettings | None = None
-    audio_paths: list[Path] = []
+        if is_speech_on:
+            voice, audio_paths = speak_outcome(
+                answer = answer,
+                persona = persona,
+                is_markup_on = is_markup_on,
+                timing = timing,
+            )
 
-    if is_speech_on:
-        voice, audio_paths = speak_outcome(
+        log_timing(timing = timing)
+
+        return OmniOutcome(
             answer = answer,
+            notes = notes,
             persona = persona,
-            is_markup_on = is_markup_on,
+            narrator_prompt = narrator_prompt,
+            look = look,
+            trace_path = trace_path,
+            voice = voice,
+            audio_paths = audio_paths,
             timing = timing,
+            error = "",
         )
-
-    return OmniOutcome(
-        answer = answer,
-        notes = notes,
-        persona = persona,
-        narrator_prompt = narrator_prompt,
-        look = look,
-        voice = voice,
-        audio_paths = audio_paths,
-        timing = timing,
-        error = "",
-    )
 
 
 def speak_outcome(
@@ -322,7 +352,7 @@ def speak_outcome(
     with timing.stage(name = "загрузка синтеза"):
         speakers, error = synthesizer.available_speakers()
     if error:
-        print(f"[озвучка] голоса не получены: {error}")
+        log_voices_missing(reason = error)
         return None, []
 
     writing_llm = build_llm(
@@ -346,13 +376,10 @@ def speak_outcome(
                 speakers = speakers,
             )
         if error:
-            print(f"[озвучка] голос не подобран: {error}")
+            log_voice_fallback(reason = error)
             settings = default_voice(speakers = speakers)
 
-    print(
-        f"[голос] {settings.speaker}, темп {settings.rate}, высота {settings.pitch}, "
-        f"эффект {settings.effect} ({settings.effect_strength})"
-    )
+    log_voice(settings = settings)
 
     paths = speak_answer(
         answer = answer,
