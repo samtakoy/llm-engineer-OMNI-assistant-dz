@@ -11,6 +11,7 @@ from pathlib import Path
 from dotenv import load_dotenv
 
 from assistant.integrations.listening import ListeningConfig
+from assistant.integrations.speaking import SpeakingConfig
 from assistant.integrations.web import WebConfig
 
 load_dotenv()
@@ -185,4 +186,41 @@ LISTENING_CONFIG = ListeningConfig(
     bypass_cache = SPEECH_CACHE_BYPASS,
     recording_sample_rate = SPEECH_SAMPLE_RATE,
     recording_directory = _project_path(raw_path = RECORDINGS_DIR),
+)
+
+
+# --- Речевой выход --------------------------------------------------------
+# Версия модели silero. Набор голосов принадлежит версии: v5_5_ru и v4_ru
+# знают разные имена, поэтому имя голоса без версии ничего не значит.
+SPEAKING_MODEL_ID = os.getenv("SPEAKING_MODEL_ID", "v5_5_ru").strip()
+SPEAKING_LANGUAGE = os.getenv("SPEAKING_LANGUAGE", "ru").strip()
+
+# Устройство синтеза: auto берёт видеокарту, если она видна torch.
+SPEAKING_DEVICE = os.getenv("SPEAKING_DEVICE", "auto").strip()
+
+# Частота дискретизации синтеза: 8000, 24000 или 48000.
+SPEAKING_SAMPLE_RATE = int(os.getenv("SPEAKING_SAMPLE_RATE", "48000"))
+
+# Ударения и буква ё. Оба флага действуют только при озвучке чистым текстом:
+# в режиме ssml silero их не принимает.
+SPEAKING_PUT_ACCENT = os.getenv("SPEAKING_PUT_ACCENT", "1").strip().lower() in ("1", "true", "yes")
+SPEAKING_PUT_YO = os.getenv("SPEAKING_PUT_YO", "1").strip().lower() in ("1", "true", "yes")
+
+# Куда torch.hub складывает копию репозитория silero и файл весов модели:
+# для v5_5_ru это 145 МБ. Пустое значение оставляет каталог torch по
+# умолчанию, общий для всех проектов на машине.
+SPEAKING_HUB_DIR = os.getenv("SPEAKING_HUB_DIR", str(PROJECT_ROOT / ".cache" / "silero")).strip()
+
+# Куда складывать озвученные файлы.
+SPOKEN_DIR = os.getenv("SPOKEN_DIR", "spoken").strip()
+SPOKEN_PATH = _project_path(raw_path = SPOKEN_DIR)
+
+SPEAKING_CONFIG = SpeakingConfig(
+    model_id = SPEAKING_MODEL_ID,
+    language = SPEAKING_LANGUAGE,
+    device = SPEAKING_DEVICE,
+    sample_rate = SPEAKING_SAMPLE_RATE,
+    put_accent = SPEAKING_PUT_ACCENT,
+    put_yo = SPEAKING_PUT_YO,
+    hub_directory = _cache_directory(raw_path = SPEAKING_HUB_DIR),
 )
