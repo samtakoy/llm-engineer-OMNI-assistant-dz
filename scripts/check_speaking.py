@@ -12,7 +12,7 @@
     .venv/bin/python scripts/check_speaking.py "Здравствуйте" --all-speakers
 
     # темп и высота разметкой ssml
-    .venv/bin/python scripts/check_speaking.py "Здравствуйте" --speaker eugene --rate slow --pitch x-low
+    .venv/bin/python scripts/check_speaking.py "Здравствуйте" --speaker eugene --rate slow --pitch low
 
     # тот же голос всеми эффектами реестра
     .venv/bin/python scripts/check_speaking.py "Здравствуйте" --speaker eugene --all-effects
@@ -28,13 +28,16 @@ from assistant.integrations.speaking import (
     SpeechSynthesizer,
     VoiceSettings,
     available_effects,
+    pitch_values,
+    rate_values,
+    strength_values,
 )
 from assistant.observability import setup_console_output
 from assistant.variables import SPEAKING_CONFIG, SPOKEN_PATH
 
-RATE_VALUES = ("x-slow", "slow", "medium", "fast", "x-fast")
-PITCH_VALUES = ("x-low", "low", "medium", "high", "x-high")
-STRENGTH_VALUES = ("low", "medium", "high")
+RATE_VALUES = rate_values()
+PITCH_VALUES = pitch_values()
+STRENGTH_VALUES = strength_values()
 
 
 def output_path(speaker: str, effect: str) -> Path:

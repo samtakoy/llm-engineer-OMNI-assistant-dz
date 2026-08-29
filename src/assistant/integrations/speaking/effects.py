@@ -9,6 +9,7 @@ Torch и torchaudio импортируются внутри функций.
 """
 
 import logging
+import math
 from dataclasses import dataclass
 from typing import Any, Callable
 
@@ -21,6 +22,32 @@ _STRENGTH_SCALE = {
     "medium": 0.65,
     "high": 1.0,
 }
+
+# Множители глубины эффектов: единица - формула в полную силу, половина - вдвое
+# слабее. Ручка подстройки эффекта на слух.
+_GROWL_DEPTH = 0.65
+_CARTOON_DEPTH = 0.5
+_GHOST_DEPTH = 0.8
+_GIANT_DEPTH = 1.0
+
+# Частота дрожания голоса в рычании, герцы.
+_GROWL_RATTLE_HZ = 32.0
+# Насколько глубоко дрожание проваливает громкость при полной силе.
+_GROWL_RATTLE_SHARE = 0.5
+# Доля копии на октаву ниже в рычании при полной силе.
+_GROWL_SUBHARMONIC_SHARE = 0.6
+# На сколько ускоряется речь мультяшного голоса при полной силе.
+_CARTOON_SPEED_RANGE = 0.35
+# Длина окна преобразования Фурье для шёпота призрака, отсчёты.
+_GHOST_WINDOW = 1024
+# Усиление шёпота: после случайной фазы звук тише исходного.
+_GHOST_WHISPER_GAIN = 1.6
+# Сила эха зала, которое достаётся призраку.
+_GHOST_ROOM_SHARE = 0.4
+# Сдвиг голоса великана вниз при полной силе, полутоны.
+_GIANT_PITCH_RANGE = 6.0
+# Сила эха зала, которое достаётся великану.
+_GIANT_ROOM_SHARE = 0.8
 
 # Имя эффекта, который ничего не меняет.
 NO_EFFECT = "none"
@@ -57,7 +84,10 @@ def _apply_none(audio: Any, sample_rate: int, strength: float) -> Any:
 
 def _apply_growl(audio: Any, sample_rate: int, strength: float) -> Any:
     """
-    Опускает голос вниз и добавляет перегруз: рычащий бас.
+    Собирает рычащий бас: голос ниже, под ним октава, поверх дрожание связок.
+
+    Октава ниже и медленная амплитудная модуляция дают скрип живого горла,
+    перегруз добавляет только грязь по краям.
 
     Аргументы:
         audio: отсчёты звука.
@@ -67,19 +97,39 @@ def _apply_growl(audio: Any, sample_rate: int, strength: float) -> Any:
     Возвращает:
         Обработанные отсчёты.
     """
+    import torch
     from torchaudio.functional import overdrive, pitch_shift
 
+    depth = strength * _GROWL_DEPTH
     lowered = pitch_shift(
         waveform = audio,
         sample_rate = sample_rate,
-        n_steps = -(1.0 + 4.0 * strength),
+        n_steps = -(1.0 + 4.0 * depth),
     )
-    return overdrive(waveform = lowered, gain = 5.0 + 25.0 * strength, colour = 20.0)
+    subharmonic = pitch_shift(
+        waveform = lowered,
+        sample_rate = sample_rate,
+        n_steps = -12.0,
+    )
+    subharmonic_share = _GROWL_SUBHARMONIC_SHARE * depth
+    voiced = lowered * (1.0 - subharmonic_share) + subharmonic * subharmonic_share
+
+    seconds = torch.arange(voiced.shape[-1]) / sample_rate
+    swing = 0.5 - 0.5 * torch.cos(2.0 * math.pi * _GROWL_RATTLE_HZ * seconds)
+    rattle = 1.0 - _GROWL_RATTLE_SHARE * depth * swing
+
+    return _normalized(
+        overdrive(waveform = voiced * rattle, gain = 2.0 + 8.0 * depth, colour = 20.0)
+    )
 
 
 def _apply_cartoon(audio: Any, sample_rate: int, strength: float) -> Any:
     """
-    Поднимает голос вверх: мультяшное звучание.
+    Ускоряет запись: голос выше и суетливее, как в мультфильме.
+
+    Пересчёт частоты дискретизации тянет вверх и высоту, и форманты, поэтому
+    голос звучит цельным маленьким существом, а не сдавленным человеком. Речь
+    при этом становится короче.
 
     Аргументы:
         audio: отсчёты звука.
@@ -89,13 +139,14 @@ def _apply_cartoon(audio: Any, sample_rate: int, strength: float) -> Any:
     Возвращает:
         Обработанные отсчёты.
     """
-    from torchaudio.functional import pitch_shift
+    from torchaudio.functional import speed
 
-    return pitch_shift(
+    raised, _ = speed(
         waveform = audio,
-        sample_rate = sample_rate,
-        n_steps = 1.0 + 4.0 * strength,
+        orig_freq = sample_rate,
+        factor = 1.0 + _CARTOON_SPEED_RANGE * strength * _CARTOON_DEPTH,
     )
+    return raised
 
 
 def _apply_cave(audio: Any, sample_rate: int, strength: float) -> Any:
@@ -153,6 +204,80 @@ def _apply_radio(audio: Any, sample_rate: int, strength: float) -> Any:
     return _normalized(overdrive(waveform = narrowed, gain = 5.0 * strength, colour = 20.0))
 
 
+def _apply_ghost(audio: Any, sample_rate: int, strength: float) -> Any:
+    """
+    Стирает высоту голоса и оставляет шелест: шёпот призрака в пустом зале.
+
+    Спектр раскладывается по окнам, громкость каждой частоты остаётся, фаза
+    заменяется случайной. Тон пропадает, разборчивость остаётся - так устроен
+    настоящий шёпот. Сверху идёт эхо зала.
+
+    Аргументы:
+        audio: отсчёты звука.
+        sample_rate: частота дискретизации.
+        strength: сила эффекта от нуля до единицы.
+
+    Возвращает:
+        Обработанные отсчёты.
+    """
+    import torch
+
+    window = torch.hann_window(_GHOST_WINDOW)
+    hop_length = _GHOST_WINDOW // 4
+    spectrum = torch.stft(
+        input = audio,
+        n_fft = _GHOST_WINDOW,
+        hop_length = hop_length,
+        window = window,
+        return_complex = True,
+    )
+    random_phase = torch.rand_like(spectrum.abs()) * 2.0 * math.pi
+    whispered = torch.istft(
+        input = torch.polar(spectrum.abs(), random_phase),
+        n_fft = _GHOST_WINDOW,
+        hop_length = hop_length,
+        window = window,
+        length = audio.shape[-1],
+    )
+
+    whisper_share = min(1.0, strength * _GHOST_DEPTH)
+    voice = audio * (1.0 - whisper_share) + whispered * _GHOST_WHISPER_GAIN * whisper_share
+    return _apply_cave(
+        audio = _normalized(voice),
+        sample_rate = sample_rate,
+        strength = _GHOST_ROOM_SHARE * strength,
+    )
+
+
+def _apply_giant(audio: Any, sample_rate: int, strength: float) -> Any:
+    """
+    Опускает голос и ставит его в большой зал: голос громады.
+
+    Отличие от рычания - нет перегруза и субгармоники, голос остаётся чистым,
+    просто идёт снизу и издалека.
+
+    Аргументы:
+        audio: отсчёты звука.
+        sample_rate: частота дискретизации.
+        strength: сила эффекта от нуля до единицы.
+
+    Возвращает:
+        Обработанные отсчёты.
+    """
+    from torchaudio.functional import pitch_shift
+
+    lowered = pitch_shift(
+        waveform = audio,
+        sample_rate = sample_rate,
+        n_steps = -_GIANT_PITCH_RANGE * strength * _GIANT_DEPTH,
+    )
+    return _apply_cave(
+        audio = lowered,
+        sample_rate = sample_rate,
+        strength = _GIANT_ROOM_SHARE * strength,
+    )
+
+
 def _normalized(audio: Any) -> Any:
     """
     Приводит пик отсчётов к единице, если он её перерос.
@@ -176,11 +301,11 @@ _EFFECTS = {
         apply = _apply_none,
     ),
     "growl": Effect(
-        description = "рычащий бас: голос ниже и с перегрузом",
+        description = "рычащий бас: голос ниже, с октавой и дрожью",
         apply = _apply_growl,
     ),
     "cartoon": Effect(
-        description = "мультяшный писк: голос выше",
+        description = "мультяшный писк: голос выше и речь быстрее",
         apply = _apply_cartoon,
     ),
     "cave": Effect(
@@ -190,6 +315,14 @@ _EFFECTS = {
     "radio": Effect(
         description = "голос из динамика: узкая полоса и хрип",
         apply = _apply_radio,
+    ),
+    "ghost": Effect(
+        description = "шёпот призрака: голос без тона, эхом в пустоте",
+        apply = _apply_ghost,
+    ),
+    "giant": Effect(
+        description = "голос громады: чистый низ и большой зал",
+        apply = _apply_giant,
     ),
 }
 

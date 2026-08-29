@@ -13,7 +13,7 @@ class VoiceSettings(BaseModel):
     speaker: str = Field(
         description = "Имя голоса из доступных в модели синтеза"
     )
-    rate: Literal["x-slow", "slow", "medium", "fast", "x-fast"] = Field(
+    rate: Literal["slow", "medium", "fast"] = Field(
         description = "Темп речи персонажа"
     )
     pitch: Literal["x-low", "low", "medium", "high", "x-high"] = Field(
