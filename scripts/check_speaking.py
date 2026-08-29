@@ -13,6 +13,9 @@
 
     # темп и высота разметкой ssml
     .venv/bin/python scripts/check_speaking.py "Здравствуйте" --speaker eugene --rate slow --pitch x-low
+
+    # тот же голос всеми эффектами реестра
+    .venv/bin/python scripts/check_speaking.py "Здравствуйте" --speaker eugene --all-effects
 """
 
 import argparse
@@ -20,26 +23,33 @@ import time
 from datetime import datetime
 from pathlib import Path
 
-from assistant.integrations.speaking import SpeechSynthesizer, VoiceSettings
+from assistant.integrations.speaking import (
+    NO_EFFECT,
+    SpeechSynthesizer,
+    VoiceSettings,
+    available_effects,
+)
 from assistant.variables import SPEAKING_CONFIG, SPOKEN_PATH
 
 RATE_VALUES = ("x-slow", "slow", "medium", "fast", "x-fast")
 PITCH_VALUES = ("x-low", "low", "medium", "high", "x-high")
+STRENGTH_VALUES = ("low", "medium", "high")
 
 
-def output_path(speaker: str) -> Path:
+def output_path(speaker: str, effect: str) -> Path:
     """
     Составляет путь к файлу с озвучкой.
 
     Аргументы:
         speaker: имя голоса; попадает в имя файла, чтобы озвучки разными
             голосами не затирали друг друга.
+        effect: имя эффекта; попадает в имя файла по той же причине.
 
     Возвращает:
         Путь к файлу.
     """
     stamp = datetime.now().strftime("%Y-%m-%dT%H-%M-%S")
-    return SPOKEN_PATH / f"{stamp}-{speaker}.wav"
+    return SPOKEN_PATH / f"{stamp}-{speaker}-{effect}.wav"
 
 
 def check_speaker(
@@ -48,9 +58,11 @@ def check_speaker(
     speaker: str,
     rate: str,
     pitch: str,
+    effect: str,
+    effect_strength: str,
 ) -> None:
     """
-    Озвучивает текст одним голосом и печатает результат.
+    Озвучивает текст одним голосом с одним эффектом и печатает результат.
 
     Аргументы:
         synthesizer: синтезатор речи.
@@ -58,26 +70,34 @@ def check_speaker(
         speaker: имя голоса.
         rate: темп речи.
         pitch: высота голоса.
+        effect: имя звукового эффекта.
+        effect_strength: сила эффекта.
 
     Возвращает:
         Ничего.
     """
-    settings = VoiceSettings(speaker = speaker, rate = rate, pitch = pitch)
+    settings = VoiceSettings(
+        speaker = speaker,
+        rate = rate,
+        pitch = pitch,
+        effect = effect,
+        effect_strength = effect_strength,
+    )
     started = time.monotonic()
 
     outcome = synthesizer.synthesize(
         text = text,
         settings = settings,
-        output_path = output_path(speaker = speaker),
+        output_path = output_path(speaker = speaker, effect = effect),
     )
     spent_seconds = time.monotonic() - started
 
     if outcome.error:
-        print(f"{speaker}: {outcome.error}, {spent_seconds:.1f} с", flush = True)
+        print(f"{speaker}/{effect}: {outcome.error}, {spent_seconds:.1f} с", flush = True)
         return
 
     print(
-        f"{speaker}: {outcome.path}, звучание {outcome.seconds:.1f} с, "
+        f"{speaker}/{effect}: {outcome.path}, звучание {outcome.seconds:.1f} с, "
         f"синтез {spent_seconds:.1f} с",
         flush = True,
     )
@@ -85,7 +105,7 @@ def check_speaker(
 
 def main() -> None:
     """
-    Прогоняет строку через синтез одним голосом либо всеми голосами версии.
+    Прогоняет строку через синтез: один голос или все, один эффект или все.
 
     Возвращает:
         Ничего.
@@ -96,6 +116,23 @@ def main() -> None:
     parser.add_argument("--rate", choices = RATE_VALUES, default = "medium", help = "темп речи")
     parser.add_argument("--pitch", choices = PITCH_VALUES, default = "medium", help = "высота голоса")
     parser.add_argument("--list", action = "store_true", help = "показать голоса версии и выйти")
+    parser.add_argument(
+        "--effect",
+        choices = available_effects(),
+        default = NO_EFFECT,
+        help = "звуковой эффект поверх синтеза",
+    )
+    parser.add_argument(
+        "--effect-strength",
+        choices = STRENGTH_VALUES,
+        default = "medium",
+        help = "сила звукового эффекта",
+    )
+    parser.add_argument(
+        "--all-effects",
+        action = "store_true",
+        help = "озвучить текст каждым эффектом реестра",
+    )
     parser.add_argument(
         "--all-speakers",
         action = "store_true",
@@ -117,15 +154,20 @@ def main() -> None:
         print("Нужен текст для озвучки.")
         return
 
-    chosen = speakers if arguments.all_speakers else [arguments.speaker or speakers[0]]
-    for speaker in chosen:
-        check_speaker(
-            synthesizer = synthesizer,
-            text = arguments.text,
-            speaker = speaker,
-            rate = arguments.rate,
-            pitch = arguments.pitch,
-        )
+    chosen_speakers = speakers if arguments.all_speakers else [arguments.speaker or speakers[0]]
+    chosen_effects = available_effects() if arguments.all_effects else [arguments.effect]
+
+    for speaker in chosen_speakers:
+        for effect in chosen_effects:
+            check_speaker(
+                synthesizer = synthesizer,
+                text = arguments.text,
+                speaker = speaker,
+                rate = arguments.rate,
+                pitch = arguments.pitch,
+                effect = effect,
+                effect_strength = arguments.effect_strength,
+            )
 
 
 if __name__ == "__main__":

@@ -1,5 +1,5 @@
 """
-Схема настроек голоса: имя голоса, темп и высота речи.
+Схема настроек голоса: имя голоса, темп и высота речи, звуковой эффект.
 """
 
 from typing import Literal
@@ -18,4 +18,10 @@ class VoiceSettings(BaseModel):
     )
     pitch: Literal["x-low", "low", "medium", "high", "x-high"] = Field(
         description = "Высота голоса персонажа"
+    )
+    effect: str = Field(
+        description = "Имя звукового эффекта из доступных"
+    )
+    effect_strength: Literal["low", "medium", "high"] = Field(
+        description = "Сила звукового эффекта"
     )

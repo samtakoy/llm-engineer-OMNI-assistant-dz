@@ -2,8 +2,8 @@
 Синтез речи моделью silero и запись звука в wav.
 
 SpeechSynthesizer отдаёт список голосов модели и озвучивает текст заданным
-голосом, темпом и высотой. Модель грузится при первой озвучке и остаётся в поле
-объекта.
+голосом, темпом, высотой и звуковым эффектом. Модель грузится при первой
+озвучке и остаётся в поле объекта.
 
 Ненейтральные темп и высота уходят в модель разметкой ssml, нейтральные - чистым
 текстом с ударениями и буквой ё: в режиме ssml silero флаги ударений не
@@ -18,6 +18,7 @@ from typing import Any
 from xml.sax.saxutils import escape
 
 from .config import SpeakingConfig
+from .effects import apply_effect
 from .outcomes import SynthesisOutcome
 from .voices import VoiceSettings
 
@@ -69,11 +70,11 @@ class SpeechSynthesizer:
         output_path: Path,
     ) -> SynthesisOutcome:
         """
-        Озвучивает текст заданным голосом и кладёт звук в файл.
+        Озвучивает текст заданным голосом, накладывает эффект и кладёт звук в файл.
 
         Аргументы:
             text: что произнести.
-            settings: голос, темп и высота.
+            settings: голос, темп, высота и звуковой эффект.
             output_path: файл, куда писать звук.
 
         Возвращает:
@@ -104,6 +105,15 @@ class SpeechSynthesizer:
                 error = f"озвучка оборвалась: {type(error).__name__}",
                 seconds = 0.0,
             )
+
+        audio, effect_error = apply_effect(
+            audio = audio,
+            sample_rate = self._config.sample_rate,
+            effect = settings.effect,
+            strength = settings.effect_strength,
+        )
+        if effect_error:
+            return SynthesisOutcome(path = None, error = effect_error, seconds = 0.0)
 
         seconds = len(audio) / self._config.sample_rate
         write_error = self._write_wav(audio = audio, output_path = output_path)

@@ -114,7 +114,7 @@ def check_voice(
     print(f"{image_path}: {describe_persona(persona = persona)}", flush = True)
     print(
         f"    голос {settings.speaker}, темп {settings.rate}, высота {settings.pitch}, "
-        f"{spent_seconds:.1f} с\n",
+        f"эффект {settings.effect} ({settings.effect_strength}), {spent_seconds:.1f} с\n",
         flush = True,
     )
 

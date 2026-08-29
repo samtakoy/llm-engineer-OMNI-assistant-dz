@@ -10,7 +10,7 @@ pick_voice отдаёт VoiceSettings: имя голоса из переданн
 from langchain_core.messages import HumanMessage, SystemMessage
 from langchain_openai import ChatOpenAI
 
-from ..integrations.speaking import VoiceSettings
+from ..integrations.speaking import NO_EFFECT, VoiceSettings, effect_catalog
 from .narrator import render_narrator_prompt
 from .prompts import VOICE_PROMPT
 from .schemas import Persona
@@ -22,10 +22,11 @@ def pick_voice(
     speakers: list[str],
 ) -> tuple[VoiceSettings | None, str]:
     """
-    Подбирает голос, темп и высоту речи под характер персонажа.
+    Подбирает голос, темп, высоту речи и звуковой эффект под характер персонажа.
 
-    Имя голоса из ответа модели проверяется по списку. Имя вне списка
-    заменяется первым голосом списка, замена печатается.
+    Имя голоса и имя эффекта из ответа модели проверяются по спискам. Голос вне
+    списка заменяется первым голосом, эффект вне реестра - отсутствием эффекта.
+    Замена печатается.
 
     Аргументы:
         llm: клиент текстовой модели.
@@ -39,10 +40,14 @@ def pick_voice(
     if not speakers:
         return None, "список голосов пуст"
 
+    catalog = effect_catalog()
+    effects = "\n".join(f"- {name}: {description}" for name, description in catalog.items())
+
     structured_llm = llm.with_structured_output(VoiceSettings, method = "json_schema")
     request = (
         f"Рассказчик:\n{render_narrator_prompt(persona = persona)}\n"
-        f"Доступные голоса: {', '.join(speakers)}"
+        f"Доступные голоса: {', '.join(speakers)}\n"
+        f"Доступные эффекты:\n{effects}"
     )
 
     try:
@@ -56,8 +61,17 @@ def pick_voice(
         print(f"[персона] вызов модели не удался: {type(error).__name__}: {error}")
         return None, f"модель не ответила по схеме: {type(error).__name__}"
 
+    corrections: dict[str, str] = {}
+
     if settings.speaker not in speakers:
         print(f"[персона] голоса {settings.speaker} нет в списке, берётся {speakers[0]}")
-        settings = settings.model_copy(update = {"speaker": speakers[0]})
+        corrections["speaker"] = speakers[0]
+
+    if settings.effect not in catalog:
+        print(f"[персона] эффекта {settings.effect} нет в реестре, берётся {NO_EFFECT}")
+        corrections["effect"] = NO_EFFECT
+
+    if corrections:
+        settings = settings.model_copy(update = corrections)
 
     return settings, ""
