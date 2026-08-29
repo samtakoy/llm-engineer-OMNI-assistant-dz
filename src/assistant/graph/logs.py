@@ -1,6 +1,11 @@
 """
-Вывод хода прогона в консоль.
+Ход прогона в журнал.
+
+Строки идут в logging под именем модуля; куда их показать, решает настройка
+вывода в пакете observability.
 """
+
+import logging
 
 from langchain_core.messages import AIMessage
 
@@ -8,10 +13,12 @@ from assistant.graph.budget import MAX_FAILED_CALLS, MAX_SUCCESSFUL_CALLS_PER_TO
 from assistant.graph.state import Answer, ResearchNotes
 from assistant.integrations.llm.client import reasoning_text
 
+logger = logging.getLogger(__name__)
+
 
 def log_round(round_number: int) -> None:
     """
-    Печатает заголовок раунда.
+    Пишет заголовок раунда.
 
     Аргументы:
         round_number: номер раунда, считая с единицы.
@@ -19,7 +26,7 @@ def log_round(round_number: int) -> None:
     Возвращает:
         Ничего.
     """
-    print(f"\n--- раунд {round_number} ---")
+    logger.info(f"\n--- раунд {round_number} ---")
 
 
 def log_budget(
@@ -28,7 +35,7 @@ def log_budget(
     tools_left: list,
 ) -> None:
     """
-    Печатает остаток бюджета и причину остановки, если она наступила.
+    Пишет остаток бюджета и причину остановки, если она наступила.
 
     Аргументы:
         successful_calls: сколько состоявшихся вызовов у каждого инструмента.
@@ -42,20 +49,20 @@ def log_budget(
         f"{name} {count}/{MAX_SUCCESSFUL_CALLS_PER_TOOL}"
         for name, count in successful_calls.items()
     )
-    print(f"[бюджет] {counters}, провалов {failed_calls}/{MAX_FAILED_CALLS}")
+    logger.info(f"[бюджет] {counters}, провалов {failed_calls}/{MAX_FAILED_CALLS}")
 
     if tools_left:
         return
 
     if failed_calls >= MAX_FAILED_CALLS:
-        print("[бюджет] лимит неудачных вызовов исчерпан, отвечаю по собранному")
+        logger.info("[бюджет] лимит неудачных вызовов исчерпан, отвечаю по собранному")
     else:
-        print("[бюджет] все инструменты исчерпаны, отвечаю по собранному")
+        logger.info("[бюджет] все инструменты исчерпаны, отвечаю по собранному")
 
 
 def log_decision(message: AIMessage) -> None:
     """
-    Печатает размышление модели и её решение на текущем шаге.
+    Пишет размышление модели и её решение на текущем шаге.
 
     Аргументы:
         message: ответ модели.
@@ -65,18 +72,18 @@ def log_decision(message: AIMessage) -> None:
     """
     reasoning = reasoning_text(message)
     if reasoning:
-        print(f"[размышление]\n{reasoning}")
+        logger.info(f"[размышление]\n{reasoning}")
 
     if message.tool_calls:
         for call in message.tool_calls:
-            print(f"[инструмент] {call['name']}({call['args']})")
+            logger.info(f"[инструмент] {call['name']}({call['args']})")
     else:
-        print("[решение] инструменты больше не нужны, перехожу к сбору фактов")
+        logger.info("[решение] инструменты больше не нужны, перехожу к сбору фактов")
 
 
 def log_blocked_call(tool_name: str, reason: str) -> None:
     """
-    Печатает отказ по бюджету на один вызов инструмента.
+    Пишет отказ по бюджету на один вызов инструмента.
 
     Аргументы:
         tool_name: имя инструмента, вызов которого отклонён.
@@ -85,12 +92,12 @@ def log_blocked_call(tool_name: str, reason: str) -> None:
     Возвращает:
         Ничего.
     """
-    print(f"[бюджет] вызов {tool_name} отклонён: {reason}")
+    logger.info(f"[бюджет] вызов {tool_name} отклонён: {reason}")
 
 
 def log_notes(notes: ResearchNotes) -> None:
     """
-    Печатает объём собранной фактической опоры.
+    Пишет объём собранной фактической опоры.
 
     Аргументы:
         notes: фактическая опора, собранная узлом collect.
@@ -98,12 +105,12 @@ def log_notes(notes: ResearchNotes) -> None:
     Возвращает:
         Ничего.
     """
-    print(f"\n[факты] собрано {len(notes.facts)}, источников {len(notes.sources)}")
+    logger.info(f"\n[факты] собрано {len(notes.facts)}, источников {len(notes.sources)}")
 
 
 def log_answer(answer: Answer) -> None:
     """
-    Печатает объём итогового текста.
+    Пишет объём итогового текста.
 
     Аргументы:
         answer: итоговый текст, собранный узлом compose.
@@ -111,7 +118,17 @@ def log_answer(answer: Answer) -> None:
     Возвращает:
         Ничего.
     """
-    print(f"[текст] разделов {len(answer.sections)}")
+    logger.info(f"[текст] разделов {len(answer.sections)}")
+
 
 def log_narrator_style(style: str) -> None:
-    print(f"[СТИЛЬ]\n {style}")
+    """
+    Пишет фразу о голосе рассказчика.
+
+    Аргументы:
+        style: фраза, задающая манеру изложения.
+
+    Возвращает:
+        Ничего.
+    """
+    logger.info(f"[СТИЛЬ]\n {style}")

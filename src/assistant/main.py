@@ -9,6 +9,7 @@ from pathlib import Path
 
 from assistant.graph import describe_nodes
 from assistant.integrations.listening import SILENCE_LEVEL, SpeechRecognizer, record
+from assistant.observability import setup_console_output
 from assistant.omni import run_omni_assistant
 from assistant.persona import PersonaMode
 from assistant.variables import LISTENING_CONFIG, LLM_PROVIDER, PERSONA_MODE
@@ -149,6 +150,8 @@ def main() -> None:
     Возвращает:
         Ничего. При неудаче с вопросом завершает процесс кодом 1.
     """
+    setup_console_output()
+
     arguments = build_parser().parse_args()
 
     question = resolve_question(arguments = arguments)
