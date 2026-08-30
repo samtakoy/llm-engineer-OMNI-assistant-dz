@@ -2,22 +2,30 @@
 Разметка текста ssml под манеру речи персонажа.
 
 mark_up_speech отдаёт модели текст и манеру рассказчика, получает тот же текст
-с тегами пауз, темпа и ударений. Чистка разметки идёт при синтезе, здесь ответ
+с паузами, ударениями и звуками персонажа. В начало ответа добавляется пауза:
+без неё голос вступает обрывисто. Чистка разметки идёт при синтезе, здесь ответ
 модели не проверяется.
 
 Наружу исключения не уходят - причина возвращается второй половиной пары.
 """
 
 import logging
+import re
 
 from langchain_core.callbacks import BaseCallbackHandler
 from langchain_core.messages import HumanMessage, SystemMessage
 from langchain_openai import ChatOpenAI
 
-from ..integrations.speaking import pitch_values, rate_values
 from .prompts import MARKUP_PROMPT
 
 logger = logging.getLogger(__name__)
+
+
+# Пауза перед первым словом.
+LEAD_PAUSE = '<break time="300ms"/>'
+
+# Пауза, уже стоящая в начале ответа модели.
+_LEADING_BREAK_PATTERN = re.compile(r"^\s*<\s*break[^>]*>", re.IGNORECASE)
 
 
 def mark_up_speech(
@@ -27,7 +35,7 @@ def mark_up_speech(
     callbacks: list[BaseCallbackHandler],
 ) -> tuple[str, str]:
     """
-    Размечает текст паузами, ударениями и сменой темпа под манеру рассказчика.
+    Размечает текст паузами, ударениями и звуками под манеру рассказчика.
 
     Аргументы:
         llm: клиент текстовой модели.
@@ -36,16 +44,14 @@ def mark_up_speech(
         callbacks: слушатели прогона; журнал заводит вызывающий.
 
     Возвращает:
-        Пару «размеченный текст, причина неудачи». При успехе причина пустая,
-        при неудаче текст пустой.
+        Пару «размеченный текст, причина неудачи». Размеченный текст начинается
+        паузой. При успехе причина пустая, при неудаче текст пустой.
     """
     if not text.strip():
         return "", "размечать нечего"
 
     request = (
         f"Рассказчик:\n{narrator_prompt}\n"
-        f"Значения темпа: {', '.join(rate_values())}\n"
-        f"Значения высоты: {', '.join(pitch_values())}\n"
         f"Текст:\n{text}"
     )
 
@@ -65,4 +71,20 @@ def mark_up_speech(
     if not marked:
         return "", "модель вернула пустой ответ"
 
-    return marked, ""
+    return _with_lead_pause(marked = marked), ""
+
+
+def _with_lead_pause(marked: str) -> str:
+    """
+    Ставит паузу перед первым словом размеченного текста.
+
+    Аргументы:
+        marked: размеченный текст от модели.
+
+    Возвращает:
+        Текст, начинающийся паузой. Своя пауза модели остаётся единственной.
+    """
+    if _LEADING_BREAK_PATTERN.match(marked):
+        return marked
+
+    return f"{LEAD_PAUSE}{marked}"

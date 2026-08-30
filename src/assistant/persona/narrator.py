@@ -23,6 +23,7 @@ def render_narrator_prompt(persona: Persona) -> str:
         address_to_listener = persona.address_to_listener,
         speech_manner = persona.speech_manner,
         favourite_words = ", ".join(persona.favourite_words),
+        favourite_sounds = ", ".join(persona.favourite_sounds),
         attitude_to_subject = persona.attitude_to_subject,
     )
 

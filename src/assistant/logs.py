@@ -89,6 +89,7 @@ def log_persona(persona: Persona) -> None:
         f"обращение: {persona.address_to_listener}\n"
         f"манера: {persona.speech_manner}\n"
         f"словечки: {', '.join(persona.favourite_words)}\n"
+        f"звуки: {', '.join(persona.favourite_sounds)}\n"
         f"отношение к предмету: {persona.attitude_to_subject}"
     )
 

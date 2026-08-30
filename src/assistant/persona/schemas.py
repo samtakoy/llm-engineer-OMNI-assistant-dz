@@ -42,6 +42,9 @@ class Persona(BaseModel):
     favourite_words: list[str] = Field(
         description = "Любимые словечки и присказки персонажа"
     )
+    favourite_sounds: list[str] = Field(
+        description = "Какие звуки издает в процессе речи (брр, мммб охи, ахи, смешки)"
+    )
     attitude_to_subject: str = Field(
         description = "Как персонаж относится к предмету рассказа и что в нём выделяет"
     )

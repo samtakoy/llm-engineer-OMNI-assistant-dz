@@ -17,13 +17,11 @@ def test_plain_text_stays_plain() -> None:
 
 def test_allowed_tags_survive() -> None:
     """
-    Проверяет, что теги белого списка остаются в теле.
+    Проверяет, что пауза белого списка остаётся в теле.
     """
-    body, has_markup = sanitize_markup(
-        text = 'Тише<break time="500ms"/><prosody rate="fast">и быстрее</prosody>'
-    )
+    body, has_markup = sanitize_markup(text = 'Тише<break time="500ms"/>и быстрее')
 
-    assert body == 'Тише<break time="500ms"/><prosody rate="fast">и быстрее</prosody>'
+    assert body == 'Тише<break time="500ms"/>и быстрее'
     assert has_markup is True
 
 
@@ -47,13 +45,13 @@ def test_unknown_tag_becomes_nothing_and_text_stays() -> None:
     assert has_markup is False
 
 
-def test_wrong_attribute_value_drops_tag() -> None:
+def test_prosody_is_dropped() -> None:
     """
-    Проверяет, что prosody со значением вне схемы выбрасывается.
+    Проверяет, что тег темпа и высоты выбрасывается: их задают настройки голоса.
     """
-    body, has_markup = sanitize_markup(text = '<prosody rate="turbo">Быстро</prosody>')
+    body, has_markup = sanitize_markup(text = '<prosody rate="slow" pitch="low">Тише</prosody>')
 
-    assert body == "Быстро"
+    assert body == "Тише"
     assert has_markup is False
 
 
@@ -67,14 +65,14 @@ def test_bad_break_time_drops_tag() -> None:
     assert has_markup is False
 
 
-def test_unclosed_tag_gets_closed() -> None:
+def test_unclosed_tag_is_dropped() -> None:
     """
-    Проверяет, что незакрытый тег закрывается в конце тела.
+    Проверяет, что незакрытый чужой тег выбрасывается, а текст остаётся.
     """
     body, has_markup = sanitize_markup(text = '<prosody pitch="low">Низко')
 
-    assert body == '<prosody pitch="low">Низко</prosody>'
-    assert has_markup is True
+    assert body == "Низко"
+    assert has_markup is False
 
 
 def test_stray_closing_tag_is_dropped() -> None:
@@ -107,33 +105,13 @@ def test_accent_marks_pass_through() -> None:
     assert has_markup is True
 
 
-def test_tag_inside_word_is_dropped() -> None:
+def test_tag_inside_word_leaves_word_whole() -> None:
     """
-    Проверяет, что пара тегов, разрезающая слово, выбрасывается вместе с парой.
+    Проверяет, что чужой тег внутри слова не разрезает слово.
     """
     body, has_markup = sanitize_markup(text = 'Этот <prosody rate="fast">з</prosody>ал')
 
     assert body == "Этот зал"
-    assert has_markup is False
-
-
-def test_tag_around_whole_word_survives() -> None:
-    """
-    Проверяет, что тег вокруг целого слова остаётся.
-    """
-    body, has_markup = sanitize_markup(text = 'Этот <prosody rate="fast">зал</prosody> помнит')
-
-    assert body == 'Этот <prosody rate="fast">зал</prosody> помнит'
-    assert has_markup is True
-
-
-def test_tag_before_accent_mark_is_dropped() -> None:
-    """
-    Проверяет, что знак ударения считается частью слова.
-    """
-    body, has_markup = sanitize_markup(text = 'мол<prosody pitch="low">+от</prosody>')
-
-    assert body == "мол+от"
     assert has_markup is False
 
 
@@ -161,10 +139,11 @@ def test_paragraphs_get_wrapped() -> None:
     assert wrap_speech_parts(body = "Первый.\n\nВторой.") == "<p><s>Первый.</s></p><p><s>Второй.</s></p>"
 
 
-def test_sentence_boundary_inside_tag_is_ignored() -> None:
+def test_pause_survives_sentence_wrapping() -> None:
     """
-    Проверяет, что граница предложения внутри тега не делит текст.
+    Проверяет, что пауза между предложениями остаётся в теле.
     """
-    body = '<prosody rate="slow">Раз. Два.</prosody>'
+    body = 'Раз. <break time="500ms"/>Два.'
+    expected = '<p><s>Раз.</s><s><break time="500ms"/>Два.</s></p>'
 
-    assert wrap_speech_parts(body = body) == f"<p><s>{body}</s></p>"
+    assert wrap_speech_parts(body = body) == expected

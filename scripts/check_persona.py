@@ -106,6 +106,7 @@ def print_persona(persona: Persona) -> None:
     print(f"    обращение:  {persona.address_to_listener}", flush = True)
     print(f"    манера:     {persona.speech_manner}", flush = True)
     print(f"    словечки:   {', '.join(persona.favourite_words)}", flush = True)
+    print(f"    звуки:   {', '.join(persona.favourite_sounds)}", flush = True)
     print(f"    отношение:  {persona.attitude_to_subject}", flush = True)
 
 

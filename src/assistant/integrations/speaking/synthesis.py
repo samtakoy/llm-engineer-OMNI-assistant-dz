@@ -20,7 +20,7 @@ from typing import Any
 
 from .config import SpeakingConfig
 from .effects import apply_effect
-from .markup import sanitize_markup, wrap_speech_parts
+from .markup import drop_markup, sanitize_markup, wrap_speech_parts
 from .outcomes import SynthesisOutcome
 from .voices import VoiceSettings
 
@@ -101,31 +101,15 @@ class SpeechSynthesizer:
                 seconds = 0.0,
             )
 
-        ssml = self._prepare_ssml(text = spoken_text, settings = settings)
-        logger.info(f"[speaking] в синтез: {ssml if ssml is not None else spoken_text}")
-
-        try:
-            audio = self._apply_tts(model = model, text = spoken_text, ssml = ssml, settings = settings)
-        except Exception as error:
-            logger.warning(f"[speaking] озвучка не удалась: {type(error).__name__}: {error}")
-            if ssml is None:
-                return SynthesisOutcome(
-                    path = None,
-                    error = f"озвучка оборвалась: {type(error).__name__}",
-                    seconds = 0.0,
-                )
-
-            logger.warning(f"[speaking] разметка: {ssml}")
-            logger.warning("[speaking] повтор чистым текстом")
-            try:
-                audio = self._apply_tts(model = model, text = spoken_text, ssml = None, settings = settings)
-            except Exception as repeat_error:
-                logger.warning(f"[speaking] повтор не удался: {type(repeat_error).__name__}: {repeat_error}")
-                return SynthesisOutcome(
-                    path = None,
-                    error = f"озвучка оборвалась: {type(repeat_error).__name__}",
-                    seconds = 0.0,
-                )
+        plain_text = drop_markup(text = spoken_text)
+        audio, synthesis_error = self._synthesized_audio(
+            model = model,
+            plain_text = plain_text,
+            marked_text = spoken_text,
+            settings = settings,
+        )
+        if audio is None:
+            return SynthesisOutcome(path = None, error = synthesis_error, seconds = 0.0)
 
         audio, effect_error = apply_effect(
             audio = audio,
@@ -142,6 +126,84 @@ class SpeechSynthesizer:
             return SynthesisOutcome(path = None, error = write_error, seconds = seconds)
 
         return SynthesisOutcome(path = output_path, error = "", seconds = seconds)
+
+    def _synthesized_audio(
+        self,
+        model: Any,
+        plain_text: str,
+        marked_text: str,
+        settings: VoiceSettings,
+    ) -> tuple[Any | None, str]:
+        """
+        Озвучивает текст, спускаясь по ступеням разметки до первой удачной.
+
+        Ступени: разметка режиссёра вместе с настройками голоса, потом одни
+        настройки голоса без разметки, потом чистый текст. Каждая следующая
+        беднее предыдущей, поэтому падение разбора ssml стоит пауз, но не темпа
+        и высоты.
+
+        Аргументы:
+            model: загруженная модель silero.
+            plain_text: что произнести без разметки.
+            marked_text: тот же текст с разметкой режиссёра.
+            settings: голос, темп, высота и звуковой эффект.
+
+        Возвращает:
+            Пару «отсчёты звука, причина неудачи». При неудаче отсчёты None.
+        """
+        last_error = ""
+
+        for description, ssml in self._synthesis_steps(
+            plain_text = plain_text,
+            marked_text = marked_text,
+            settings = settings,
+        ):
+            logger.info(f"[speaking] в синтез ({description}): {ssml if ssml is not None else plain_text}")
+            try:
+                return self._apply_tts(
+                    model = model,
+                    text = plain_text,
+                    ssml = ssml,
+                    settings = settings,
+                ), ""
+            except Exception as error:
+                logger.warning(
+                    f"[speaking] ступень «{description}» не удалась: "
+                    f"{type(error).__name__}: {error}"
+                )
+                last_error = f"озвучка оборвалась: {type(error).__name__}"
+
+        return None, last_error
+
+    def _synthesis_steps(
+        self,
+        plain_text: str,
+        marked_text: str,
+        settings: VoiceSettings,
+    ) -> list[tuple[str, str | None]]:
+        """
+        Собирает ступени озвучки от самой богатой к самой бедной.
+
+        Аргументы:
+            plain_text: что произнести без разметки.
+            marked_text: тот же текст с разметкой режиссёра.
+            settings: голос, темп и высота.
+
+        Возвращает:
+            Пары «название ступени, разметка ssml». У последней ступени разметки
+            нет: там синтез идёт чистым текстом.
+        """
+        with_markup = self._prepare_ssml(text = marked_text, settings = settings)
+        without_markup = self._prepare_ssml(text = plain_text, settings = settings)
+
+        steps: list[tuple[str, str | None]] = []
+        if with_markup is not None:
+            steps.append(("разметка и настройки голоса", with_markup))
+        if without_markup is not None and without_markup != with_markup:
+            steps.append(("настройки голоса без разметки", without_markup))
+        steps.append(("чистый текст", None))
+
+        return steps
 
     def _prepare_ssml(self, text: str, settings: VoiceSettings) -> str | None:
         """
@@ -259,14 +321,31 @@ class SpeechSynthesizer:
             logger.warning(f"[speaking] модель не загрузилась: {type(error).__name__}: {error}")
             return None, f"модель {self._config.model_id} не загрузилась"
 
-        # На пути ssml модель зовёт convert_to_orig без проверки ext_alph на None,
-        # и латинская буква в тексте роняет разбор. Пустой словарь включает ту же
-        # ветку «ничего не заменять», что стоит на пути чистого текста.
-        if getattr(model, "ext_alph", None) is None:
-            model.ext_alph = {}
+        _fix_external_alphabet(model = model)
 
         self._model = model
         return self._model, ""
+
+
+def _fix_external_alphabet(model: Any) -> None:
+    """
+    Ставит пустой словарь замен там, где модель хранит None.
+
+    На пути ssml модель зовёт convert_to_orig без проверки ext_alph на None, и
+    латинская буква в тексте роняет разбор. Пустой словарь включает ту же ветку
+    «ничего не заменять», что стоит на пути чистого текста. Словарь лежит не в
+    самой модели, а в её пакетах голосов, поэтому чинить надо каждый.
+
+    Аргументы:
+        model: загруженная модель silero.
+
+    Возвращает:
+        Ничего.
+    """
+    packages = getattr(model, "packages", [])
+    for package in [*packages, model]:
+        if getattr(package, "ext_alph", None) is None:
+            package.ext_alph = {}
 
 
 def _render_ssml(body: str, settings: VoiceSettings) -> str:
