@@ -28,7 +28,7 @@ _STRENGTH_SCALE = {
 _GROWL_DEPTH = 0.33
 _CARTOON_DEPTH = 0.5
 _GHOST_DEPTH = 0.4
-_GIANT_DEPTH = 0.25
+_GIANT_DEPTH = 0.2
 
 # Частота дрожания голоса в рычании, герцы.
 _GROWL_RATTLE_HZ = 32.0
@@ -48,6 +48,9 @@ _GHOST_ROOM_SHARE = 0.4
 _GIANT_PITCH_RANGE = 6.0
 # Сила эха зала, которое достаётся великану.
 _GIANT_ROOM_SHARE = 0.8
+
+# Уровень, ниже которого звук считается тишиной и не выравнивается.
+_SILENCE_LEVEL = 1e-6
 
 # Имя эффекта, который ничего не меняет.
 NO_EFFECT = "none"
@@ -118,8 +121,13 @@ def _apply_growl(audio: Any, sample_rate: int, strength: float) -> Any:
     swing = 0.5 - 0.5 * torch.cos(2.0 * math.pi * _GROWL_RATTLE_HZ * seconds)
     rattle = 1.0 - _GROWL_RATTLE_SHARE * depth * swing
 
-    return _normalized(
-        overdrive(waveform = voiced * rattle, gain = 2.0 + 8.0 * depth, colour = 20.0)
+    return _matched_loudness(
+        processed = overdrive(
+            waveform = voiced * rattle,
+            gain = 2.0 + 8.0 * depth,
+            colour = 20.0,
+        ),
+        source = audio,
     )
 
 
@@ -146,7 +154,7 @@ def _apply_cartoon(audio: Any, sample_rate: int, strength: float) -> Any:
         orig_freq = sample_rate,
         factor = 1.0 + _CARTOON_SPEED_RANGE * strength * _CARTOON_DEPTH,
     )
-    return raised
+    return _matched_loudness(processed = raised, source = audio)
 
 
 def _apply_cave(audio: Any, sample_rate: int, strength: float) -> Any:
@@ -174,7 +182,10 @@ def _apply_cave(audio: Any, sample_rate: int, strength: float) -> Any:
 
     wet = fftconvolve(audio, response, mode = "same")
     wet_share = 0.5 * strength
-    return _normalized(audio * (1.0 - wet_share) + wet * wet_share)
+    return _matched_loudness(
+        processed = audio * (1.0 - wet_share) + wet * wet_share,
+        source = audio,
+    )
 
 
 def _apply_radio(audio: Any, sample_rate: int, strength: float) -> Any:
@@ -201,7 +212,10 @@ def _apply_radio(audio: Any, sample_rate: int, strength: float) -> Any:
         sample_rate = sample_rate,
         cutoff_freq = 3400.0 - 1000.0 * strength,
     )
-    return _normalized(overdrive(waveform = narrowed, gain = 5.0 * strength, colour = 20.0))
+    return _matched_loudness(
+        processed = overdrive(waveform = narrowed, gain = 5.0 * strength, colour = 20.0),
+        source = audio,
+    )
 
 
 def _apply_ghost(audio: Any, sample_rate: int, strength: float) -> Any:
@@ -243,7 +257,7 @@ def _apply_ghost(audio: Any, sample_rate: int, strength: float) -> Any:
     whisper_share = min(1.0, strength * _GHOST_DEPTH)
     voice = audio * (1.0 - whisper_share) + whispered * _GHOST_WHISPER_GAIN * whisper_share
     return _apply_cave(
-        audio = _normalized(voice),
+        audio = _matched_loudness(processed = voice, source = audio),
         sample_rate = sample_rate,
         strength = _GHOST_ROOM_SHARE * strength,
     )
@@ -271,11 +285,37 @@ def _apply_giant(audio: Any, sample_rate: int, strength: float) -> Any:
         sample_rate = sample_rate,
         n_steps = -_GIANT_PITCH_RANGE * strength * _GIANT_DEPTH,
     )
-    return _apply_cave(
-        audio = lowered,
-        sample_rate = sample_rate,
-        strength = _GIANT_ROOM_SHARE * strength,
+    return _matched_loudness(
+        processed = _apply_cave(
+            audio = lowered,
+            sample_rate = sample_rate,
+            strength = _GIANT_ROOM_SHARE * strength,
+        ),
+        source = audio,
     )
+
+
+def _matched_loudness(processed: Any, source: Any) -> Any:
+    """
+    Приводит громкость обработанного звука к громкости исходного.
+
+    Среднеквадратичный уровень обработанных отсчётов подгоняется под уровень
+    исходных, после чего пик ограничивается единицей. Звук тише порога тишины
+    остаётся без выравнивания.
+
+    Аргументы:
+        processed: отсчёты после наложения эффекта.
+        source: отсчёты до наложения эффекта.
+
+    Возвращает:
+        Отсчёты с громкостью исходного звука и пиком не больше единицы.
+    """
+    source_level = source.pow(2).mean().sqrt()
+    processed_level = processed.pow(2).mean().sqrt()
+    if source_level <= _SILENCE_LEVEL or processed_level <= _SILENCE_LEVEL:
+        return _normalized(processed)
+
+    return _normalized(processed * (source_level / processed_level))
 
 
 def _normalized(audio: Any) -> Any:

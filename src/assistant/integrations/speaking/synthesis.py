@@ -8,6 +8,8 @@ SpeechSynthesizer отдаёт список голосов модели и оз�
 Кусок речи собирается из частей: каждая часть звучит своим голосом, между
 частями кладётся тишина, всё вместе ложится в один файл. Часть длиннее бюджета
 символов режется на чанки и озвучивается по одному, отсчёты склеиваются встык.
+Перед склейкой части приводятся к общей громкости: голоса модели отдают разный
+уровень, и без выравнивания одна часть звучит тише соседней.
 
 Разметка в тексте и ненейтральные темп с высотой уходят в модель как ssml,
 чистый текст с нейтральными настройками - как текст с ударениями и буквой ё:
@@ -44,6 +46,13 @@ _NEUTRAL_PROSODY = "medium"
 
 # Тишина между соседними частями куска речи.
 _PART_GAP_SECONDS = 0.35
+
+# Общая громкость частей куска: среднеквадратичный уровень отсчётов.
+_TARGET_LEVEL_RMS = 0.1
+# Потолок усиления части: выше него почти пустая часть раздувается в шум.
+_MAX_LEVEL_GAIN = 8.0
+# Уровень, ниже которого часть считается тишиной и не выравнивается.
+_SILENCE_LEVEL = 1e-6
 
 
 class SpeechSynthesizer:
@@ -102,9 +111,9 @@ class SpeechSynthesizer:
         """
         Озвучивает части своими голосами, склеивает их и кладёт звук в один файл.
 
-        Между соседними частями кладётся тишина. Часть, которая не озвучилась,
-        пропускается с записью причины в журнал. Файл не пишется, только когда не
-        озвучилась ни одна часть.
+        Части приводятся к общей громкости, между соседними кладётся тишина.
+        Часть, которая не озвучилась, пропускается с записью причины в журнал.
+        Файл не пишется, только когда не озвучилась ни одна часть.
 
         Аргументы:
             parts: пары «текст, настройки голоса» в порядке произнесения.
@@ -119,26 +128,30 @@ class SpeechSynthesizer:
         if model is None:
             return SynthesisOutcome(path = None, error = load_error, seconds = 0.0)
 
-        chunks: list[Any] = []
+        rendered_parts: list[Any] = []
         last_error = "озвучивать нечего"
 
         for text, settings in parts:
-            audio, render_error = self._rendered_part(
+            part_audio, render_error = self._rendered_part(
                 model = model,
                 text = text,
                 settings = settings,
             )
-            if audio is None:
+            if part_audio is None:
                 logger.warning(f"[speaking] часть пропущена: {render_error}")
                 last_error = render_error
                 continue
 
-            if chunks:
-                chunks.append(self._silence(like = audio))
-            chunks.append(audio)
+            rendered_parts.append(part_audio)
 
-        if not chunks:
+        if not rendered_parts:
             return SynthesisOutcome(path = None, error = last_error, seconds = 0.0)
+
+        chunks: list[Any] = []
+        for part_audio in self._leveled(parts = rendered_parts):
+            if chunks:
+                chunks.append(self._silence(like = part_audio))
+            chunks.append(part_audio)
 
         audio = torch.cat(chunks)
         seconds = len(audio) / self._config.sample_rate
@@ -221,6 +234,50 @@ class SpeechSynthesizer:
         import torch
 
         return torch.zeros(int(self._config.sample_rate * _PART_GAP_SECONDS), dtype = like.dtype)
+
+    def _leveled(self, parts: list[Any]) -> list[Any]:
+        """
+        Приводит части куска к общей громкости.
+
+        Каждая часть множится на свой коэффициент до цели _TARGET_LEVEL_RMS.
+        Когда после этого пик хоть одной части выходит за единицу, все части
+        делятся на общий множитель: громкость частей относительно друг друга
+        остаётся прежней.
+
+        Аргументы:
+            parts: отсчёты частей в порядке произнесения.
+
+        Возвращает:
+            Отсчёты частей с выровненной громкостью.
+        """
+        leveled = [part * self._level_gain(audio = part) for part in parts]
+
+        peak = max(part.abs().max().item() for part in leveled)
+        if peak <= 1.0:
+            return leveled
+
+        logger.info(f"[speaking] пик частей {peak:.2f}, громкость куска убавлена")
+        return [part / peak for part in leveled]
+
+    def _level_gain(self, audio: Any) -> float:
+        """
+        Считает множитель, который приводит громкость части к цели.
+
+        Громкость меряется среднеквадратичным уровнем отсчётов. У части тише
+        порога тишины множитель единичный, у остальных он ограничен потолком
+        _MAX_LEVEL_GAIN.
+
+        Аргументы:
+            audio: отсчёты части.
+
+        Возвращает:
+            Множитель громкости части.
+        """
+        level = audio.pow(2).mean().sqrt().item()
+        if level <= _SILENCE_LEVEL:
+            return 1.0
+
+        return min(_TARGET_LEVEL_RMS / level, _MAX_LEVEL_GAIN)
 
     def _synthesized_audio(
         self,
