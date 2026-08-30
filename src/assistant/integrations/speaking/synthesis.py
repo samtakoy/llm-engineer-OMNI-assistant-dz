@@ -5,6 +5,9 @@ SpeechSynthesizer отдаёт список голосов модели и оз�
 голосом, темпом, высотой и звуковым эффектом. Модель грузится при первой
 озвучке и остаётся в поле объекта.
 
+Кусок речи собирается из частей: каждая часть звучит своим голосом, между
+частями кладётся тишина, всё вместе ложится в один файл.
+
 Разметка в тексте и ненейтральные темп с высотой уходят в модель как ssml,
 чистый текст с нейтральными настройками - как текст с ударениями и буквой ё:
 в режиме ssml silero флаги ударений не принимает. Перед отправкой разметка
@@ -37,6 +40,9 @@ _MAX_AMPLITUDE = 32767
 
 # Темп и высота, при которых разметка не нужна.
 _NEUTRAL_PROSODY = "medium"
+
+# Тишина между соседними частями куска речи.
+_PART_GAP_SECONDS = 0.35
 
 
 class SpeechSynthesizer:
@@ -85,21 +91,86 @@ class SpeechSynthesizer:
         Возвращает:
             Исход озвучки: путь к файлу либо причина неудачи.
         """
-        spoken_text = text.strip()
-        if not spoken_text:
-            return SynthesisOutcome(path = None, error = "озвучивать нечего", seconds = 0.0)
+        return self.synthesize_parts(parts = [(text, settings)], output_path = output_path)
+
+    def synthesize_parts(
+        self,
+        parts: list[tuple[str, VoiceSettings]],
+        output_path: Path,
+    ) -> SynthesisOutcome:
+        """
+        Озвучивает части своими голосами, склеивает их и кладёт звук в один файл.
+
+        Между соседними частями кладётся тишина. Часть, которая не озвучилась,
+        пропускается с записью причины в журнал. Файл не пишется, только когда не
+        озвучилась ни одна часть.
+
+        Аргументы:
+            parts: пары «текст, настройки голоса» в порядке произнесения.
+            output_path: файл, куда писать звук.
+
+        Возвращает:
+            Исход озвучки: путь к файлу либо причина неудачи.
+        """
+        import torch
 
         model, load_error = self._loaded_model()
         if model is None:
             return SynthesisOutcome(path = None, error = load_error, seconds = 0.0)
 
-        speakers = list(model.speakers)
-        if settings.speaker not in speakers:
-            return SynthesisOutcome(
-                path = None,
-                error = f"голоса {settings.speaker} нет в модели {self._config.model_id}",
-                seconds = 0.0,
+        chunks: list[Any] = []
+        last_error = "озвучивать нечего"
+
+        for text, settings in parts:
+            audio, render_error = self._rendered_part(
+                model = model,
+                text = text,
+                settings = settings,
             )
+            if audio is None:
+                logger.warning(f"[speaking] часть пропущена: {render_error}")
+                last_error = render_error
+                continue
+
+            if chunks:
+                chunks.append(self._silence(like = audio))
+            chunks.append(audio)
+
+        if not chunks:
+            return SynthesisOutcome(path = None, error = last_error, seconds = 0.0)
+
+        audio = torch.cat(chunks)
+        seconds = len(audio) / self._config.sample_rate
+
+        write_error = self._write_wav(audio = audio, output_path = output_path)
+        if write_error:
+            return SynthesisOutcome(path = None, error = write_error, seconds = seconds)
+
+        return SynthesisOutcome(path = output_path, error = "", seconds = seconds)
+
+    def _rendered_part(
+        self,
+        model: Any,
+        text: str,
+        settings: VoiceSettings,
+    ) -> tuple[Any | None, str]:
+        """
+        Озвучивает одну часть куска и накладывает на неё звуковой эффект.
+
+        Аргументы:
+            model: загруженная модель silero.
+            text: что произнести.
+            settings: голос, темп, высота и звуковой эффект.
+
+        Возвращает:
+            Пару «отсчёты звука, причина неудачи». При неудаче отсчёты None.
+        """
+        spoken_text = text.strip()
+        if not spoken_text:
+            return None, "озвучивать нечего"
+
+        if settings.speaker not in model.speakers:
+            return None, f"голоса {settings.speaker} нет в модели {self._config.model_id}"
 
         plain_text = drop_markup(text = spoken_text)
         audio, synthesis_error = self._synthesized_audio(
@@ -109,7 +180,7 @@ class SpeechSynthesizer:
             settings = settings,
         )
         if audio is None:
-            return SynthesisOutcome(path = None, error = synthesis_error, seconds = 0.0)
+            return None, synthesis_error
 
         audio, effect_error = apply_effect(
             audio = audio,
@@ -118,14 +189,23 @@ class SpeechSynthesizer:
             strength = settings.effect_strength,
         )
         if effect_error:
-            return SynthesisOutcome(path = None, error = effect_error, seconds = 0.0)
+            return None, effect_error
 
-        seconds = len(audio) / self._config.sample_rate
-        write_error = self._write_wav(audio = audio, output_path = output_path)
-        if write_error:
-            return SynthesisOutcome(path = None, error = write_error, seconds = seconds)
+        return audio, ""
 
-        return SynthesisOutcome(path = output_path, error = "", seconds = seconds)
+    def _silence(self, like: Any) -> Any:
+        """
+        Строит тишину, которая ложится между соседними частями куска.
+
+        Аргументы:
+            like: отсчёты соседней части; у тишины тот же тип отсчётов.
+
+        Возвращает:
+            Отсчёты тишины длиной _PART_GAP_SECONDS.
+        """
+        import torch
+
+        return torch.zeros(int(self._config.sample_rate * _PART_GAP_SECONDS), dtype = like.dtype)
 
     def _synthesized_audio(
         self,

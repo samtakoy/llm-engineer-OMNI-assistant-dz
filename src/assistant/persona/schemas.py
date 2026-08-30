@@ -7,6 +7,8 @@ from typing import Literal
 
 from pydantic import BaseModel, Field
 
+from ..integrations.speaking import VoiceSettings
+
 
 class PersonaMode(Enum):
     """
@@ -47,4 +49,12 @@ class Persona(BaseModel):
     )
     attitude_to_subject: str = Field(
         description = "Как персонаж относится к предмету рассказа и что в нём выделяет"
+    )
+
+
+class NarratorVoice(VoiceSettings):
+    """Настройки голоса персонажа вместе с полом рассказчика."""
+
+    narrator_gender: Literal["мужской", "женский", "неопределённый"] = Field(
+        description = "Пол рассказчика, выведенный из блока про рассказчика"
     )

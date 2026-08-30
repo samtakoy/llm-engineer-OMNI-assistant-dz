@@ -211,6 +211,13 @@ SPEAKING_PUT_YO = os.getenv("SPEAKING_PUT_YO", "1").strip().lower() in ("1", "tr
 # умолчанию, общий для всех проектов на машине.
 SPEAKING_HUB_DIR = os.getenv("SPEAKING_HUB_DIR", str(PROJECT_ROOT / ".cache" / "silero")).strip()
 
+# Голоса диктора, читающего заголовки разделов. Пол диктора противоположен полу
+# рассказчика: женскому рассказчику отвечает мужской голос, остальным - женский.
+# Имена принадлежат версии модели из SPEAKING_MODEL_ID: на версии, которая их не
+# знает, диктор отключается и заголовок читает голос персонажа.
+TITLE_MALE_SPEAKER = os.getenv("TITLE_MALE_SPEAKER", "eugene").strip()
+TITLE_FEMALE_SPEAKER = os.getenv("TITLE_FEMALE_SPEAKER", "xenia").strip()
+
 # Куда складывать озвученные файлы.
 SPOKEN_DIR = os.getenv("SPOKEN_DIR", "spoken").strip()
 SPOKEN_PATH = _project_path(raw_path = SPOKEN_DIR)

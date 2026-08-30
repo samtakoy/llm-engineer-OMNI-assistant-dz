@@ -41,12 +41,15 @@ from assistant.logs import (
     log_speech_failed,
     log_spoken,
     log_timing,
+    log_title_voice,
+    log_title_voice_missing,
     log_voice,
     log_voice_fallback,
     log_voices_missing,
 )
 from assistant.observability import trace_run
 from assistant.persona import (
+    NarratorVoice,
     Persona,
     PersonaMode,
     build_narrator_style,
@@ -62,6 +65,8 @@ from assistant.variables import (
     LISTENING_CONFIG,
     SPEAKING_CONFIG,
     SPOKEN_PATH,
+    TITLE_FEMALE_SPEAKER,
+    TITLE_MALE_SPEAKER,
     VISION_MODEL,
     VISION_PROVIDER,
 )
@@ -243,7 +248,7 @@ def build_narrator_from_image(
     return render_narrator_prompt(persona = persona), persona, look, ""
 
 
-def default_voice(speakers: list[str]) -> VoiceSettings:
+def default_voice(speakers: list[str]) -> NarratorVoice:
     """
     Собирает настройки голоса для прогона без персонажа.
 
@@ -251,10 +256,43 @@ def default_voice(speakers: list[str]) -> VoiceSettings:
         speakers: имена голосов, которые знает модель синтеза.
 
     Возвращает:
-        Первый голос списка, нейтральные темп и высоту, без эффекта.
+        Первый голос списка, нейтральные темп и высоту, без эффекта, пол
+        рассказчика неопределённый.
     """
-    return VoiceSettings(
+    return NarratorVoice(
         speaker = speakers[0],
+        rate = "medium",
+        pitch = "medium",
+        effect = NO_EFFECT,
+        effect_strength = "medium",
+        narrator_gender = "неопределённый",
+    )
+
+
+def title_voice(narrator_gender: str, speakers: list[str]) -> VoiceSettings | None:
+    """
+    Собирает настройки голоса диктора, читающего заголовки разделов.
+
+    Пол диктора противоположен полу рассказчика: женскому рассказчику отвечает
+    мужской голос, остальным - женский. Темп и высота у диктора средние, эффекта
+    нет.
+
+    Аргументы:
+        narrator_gender: пол рассказчика.
+        speakers: имена голосов, которые знает модель синтеза.
+
+    Возвращает:
+        Настройки голоса диктора либо None, когда такого голоса в модели нет.
+    """
+    speaker = TITLE_MALE_SPEAKER if narrator_gender == "женский" else TITLE_FEMALE_SPEAKER
+
+    if speaker not in speakers:
+        log_title_voice_missing(speaker = speaker)
+        return None
+
+    log_title_voice(speaker = speaker)
+    return VoiceSettings(
+        speaker = speaker,
         rate = "medium",
         pitch = "medium",
         effect = NO_EFFECT,
@@ -262,7 +300,21 @@ def default_voice(speakers: list[str]) -> VoiceSettings:
     )
 
 
-def split_into_pieces(answer: Answer) -> list[str]:
+@dataclass(frozen = True)
+class SpokenPiece:
+    """
+    Кусок ответа для озвучки.
+
+    Атрибуты:
+        title: заголовок раздела; пустая строка у вступления и завершения.
+        text: текст куска без заголовка.
+    """
+
+    title: str
+    text: str
+
+
+def split_into_pieces(answer: Answer) -> list[SpokenPiece]:
     """
     Режет ответ на куски для озвучки.
 
@@ -271,18 +323,52 @@ def split_into_pieces(answer: Answer) -> list[str]:
 
     Возвращает:
         Вступление, разделы вместе с заголовками и завершение, в порядке чтения.
+        Заголовок лежит отдельно от текста раздела.
     """
-    pieces = [answer.intro]
-    pieces.extend(f"{section.title}. {section.content}" for section in answer.sections)
-    pieces.append(answer.closing)
+    pieces = [SpokenPiece(title = "", text = answer.intro)]
+    pieces.extend(
+        SpokenPiece(title = section.title, text = section.content)
+        for section in answer.sections
+    )
+    pieces.append(SpokenPiece(title = "", text = answer.closing))
 
-    return [piece for piece in pieces if piece.strip()]
+    return [piece for piece in pieces if piece.text.strip()]
+
+
+def speech_parts(
+    title: str,
+    spoken_text: str,
+    settings: VoiceSettings,
+    title_settings: VoiceSettings | None,
+) -> list[tuple[str, VoiceSettings]]:
+    """
+    Собирает части одного куска речи с голосом на каждую.
+
+    Аргументы:
+        title: заголовок раздела; пустая строка - заголовка нет.
+        spoken_text: текст куска, размеченный либо исходный.
+        settings: настройки голоса персонажа.
+        title_settings: настройки голоса диктора; None - заголовок читает голос
+            персонажа.
+
+    Возвращает:
+        Пары «текст, настройки голоса» в порядке произнесения. У куска без
+        заголовка часть одна.
+    """
+    if not title.strip():
+        return [(spoken_text, settings)]
+
+    return [
+        (title, title_settings if title_settings is not None else settings),
+        (spoken_text, settings),
+    ]
 
 
 def speak_answer(
     answer: Answer,
     narrator_prompt: str,
     settings: VoiceSettings,
+    title_settings: VoiceSettings | None,
     synthesizer: SpeechSynthesizer,
     llm: ChatOpenAI,
     is_markup_on: bool,
@@ -292,11 +378,16 @@ def speak_answer(
     """
     Озвучивает ответ по кускам, печатая каждый готовый файл сразу.
 
+    Заголовок раздела читает диктор, тело раздела - персонаж, обе озвучки
+    ложатся в один файл. Разметку получает только тело.
+
     Аргументы:
         answer: итоговый текст.
         narrator_prompt: блок про рассказчика; пустая строка - разметка не
             запрашивается.
-        settings: настройки голоса.
+        settings: настройки голоса персонажа.
+        title_settings: настройки голоса диктора; None - заголовок читает голос
+            персонажа.
         synthesizer: синтезатор речи.
         llm: клиент текстовой модели для разметки.
         is_markup_on: просить модель разметить текст перед озвучкой.
@@ -310,14 +401,14 @@ def speak_answer(
     paths: list[Path] = []
 
     for index, piece in enumerate(split_into_pieces(answer = answer), start = 1):
-        spoken_text = piece
+        spoken_text = piece.text
 
         if is_markup_on and narrator_prompt:
             with timing.stage(name = f"разметка {index}"):
                 marked, error = mark_up_speech(
                     llm = llm,
                     narrator_prompt = narrator_prompt,
-                    text = piece,
+                    text = piece.text,
                     callbacks = callbacks,
                 )
             if error:
@@ -327,9 +418,13 @@ def speak_answer(
                 log_markup(index = index, marked_text = marked)
 
         with timing.stage(name = f"озвучка {index}"):
-            outcome = synthesizer.synthesize(
-                text = spoken_text,
-                settings = settings,
+            outcome = synthesizer.synthesize_parts(
+                parts = speech_parts(
+                    title = piece.title,
+                    spoken_text = spoken_text,
+                    settings = settings,
+                    title_settings = title_settings,
+                ),
                 output_path = SPOKEN_PATH / f"{stamp}-{index:02d}.wav",
             )
 
@@ -625,7 +720,7 @@ def speak_outcome(
     is_markup_on: bool,
     timing: Stopwatch,
     callbacks: list[BaseCallbackHandler],
-) -> tuple[VoiceSettings | None, list[Path]]:
+) -> tuple[NarratorVoice | None, list[Path]]:
     """
     Подбирает голос и озвучивает готовый текст.
 
@@ -680,6 +775,10 @@ def speak_outcome(
         answer = answer,
         narrator_prompt = narrator_prompt,
         settings = settings,
+        title_settings = title_voice(
+            narrator_gender = settings.narrator_gender,
+            speakers = speakers,
+        ),
         synthesizer = synthesizer,
         llm = writing_llm,
         is_markup_on = is_markup_on,

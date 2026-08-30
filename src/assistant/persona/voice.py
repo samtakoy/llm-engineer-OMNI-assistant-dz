@@ -1,8 +1,9 @@
 """
 Подбор голоса синтеза под манеру рассказчика.
 
-pick_voice отдаёт VoiceSettings: имя голоса из переданного списка, темп и
-высоту речи. Список голосов приходит снаружи, имена в коде не хранятся.
+pick_voice отдаёт NarratorVoice: имя голоса из переданного списка, темп и
+высоту речи, а рядом пол рассказчика. Список голосов приходит снаружи, имена в
+коде не хранятся.
 
 Наружу исключения не уходят - причина возвращается второй половиной пары.
 """
@@ -13,8 +14,9 @@ from langchain_core.callbacks import BaseCallbackHandler
 from langchain_core.messages import HumanMessage, SystemMessage
 from langchain_openai import ChatOpenAI
 
-from ..integrations.speaking import NO_EFFECT, VoiceSettings, effect_catalog
+from ..integrations.speaking import NO_EFFECT, effect_catalog
 from .prompts import VOICE_PROMPT
+from .schemas import NarratorVoice
 
 logger = logging.getLogger(__name__)
 
@@ -24,7 +26,7 @@ def pick_voice(
     narrator_prompt: str,
     speakers: list[str],
     callbacks: list[BaseCallbackHandler],
-) -> tuple[VoiceSettings | None, str]:
+) -> tuple[NarratorVoice | None, str]:
     """
     Подбирает голос, темп, высоту речи и звуковой эффект под манеру рассказчика.
 
@@ -48,7 +50,7 @@ def pick_voice(
     catalog = effect_catalog()
     effects = "\n".join(f"- {name}: {description}" for name, description in catalog.items())
 
-    structured_llm = llm.with_structured_output(VoiceSettings, method = "json_schema")
+    structured_llm = llm.with_structured_output(NarratorVoice, method = "json_schema")
     request = (
         f"Рассказчик:\n{narrator_prompt}\n"
         f"Доступные голоса: {', '.join(speakers)}\n"
