@@ -9,6 +9,7 @@
     SynthesisOutcome - исход озвучки.
     available_effects, effect_catalog - имена и описания звуковых эффектов.
     sanitize_markup - чистка разметки ssml по белому списку тегов.
+    split_into_chunks - резка длинного текста на куски по бюджету символов.
     wrap_speech_parts - разбивка тела ssml на абзацы и предложения.
 
 Настройки приходят объектом SpeakingConfig, сообщения печатаются через print,
@@ -19,7 +20,7 @@
 
 from .config import SpeakingConfig
 from .effects import NO_EFFECT, available_effects, effect_catalog
-from .markup import sanitize_markup, wrap_speech_parts
+from .markup import sanitize_markup, split_into_chunks, wrap_speech_parts
 from .outcomes import SynthesisOutcome
 from .synthesis import SpeechSynthesizer
 from .voices import VoiceSettings, pitch_values, rate_values, strength_values
@@ -30,6 +31,7 @@ __all__ = [
     "available_effects",
     "effect_catalog",
     "sanitize_markup",
+    "split_into_chunks",
     "wrap_speech_parts",
     "rate_values",
     "pitch_values",

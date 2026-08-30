@@ -19,6 +19,7 @@ def build_sample_persona() -> Persona:
         address_to_listener = "salaga",
         speech_manner = "Говорит короткими фразами, с долгими паузами",
         favourite_words = ["шторм", "по курсу", "держись"],
+        favourite_sounds = ["кхм", "у-у-у"],
         attitude_to_subject = "Меряет всё расстоянием до берега",
     )
 
@@ -47,6 +48,8 @@ def test_prompt_contains_every_field() -> None:
     assert persona.attitude_to_subject in prompt
     for word in persona.favourite_words:
         assert word in prompt
+    for sound in persona.favourite_sounds:
+        assert sound in prompt
 
 
 def test_prompt_has_no_unfilled_placeholders() -> None:

@@ -2,8 +2,9 @@
 Санитайзер разметки ssml для silero.
 
 sanitize_markup оставляет паузы белого списка, остальную разметку превращает в
-текст, drop_markup выбрасывает разметку целиком. Ударения знаком плюс и обычный
-текст проходят как есть.
+текст, drop_markup выбрасывает разметку целиком, split_into_chunks режет длинный
+текст на куски по бюджету символов. Ударения знаком плюс и обычный текст проходят
+как есть.
 
 Белый список: break с time. Темп и высоту голоса разметка не задаёт: они идут
 одним значением на всю речь из настроек голоса. Абзацы и предложения
@@ -31,6 +32,13 @@ _SPACE_PATTERN = re.compile(r"[ \t]{2,}")
 
 # Граница абзаца: пустая строка.
 _PARAGRAPH_BOUNDARY_PATTERN = re.compile(r"\n\s*\n")
+
+# Граница предложения вне тега: знак конца, пробел, и до ближайшей угловой скобки
+# нет закрывающей - иначе рез пришёлся бы на середину тега.
+_SENTENCE_SPLIT_PATTERN = re.compile(r"(?<=[.!?…])\s+(?![^<>]*>)")
+
+# Граница слова вне тега: запасной рез, когда предложение само длиннее бюджета.
+_WORD_SPLIT_PATTERN = re.compile(r"\s+(?![^<>]*>)")
 
 # Единственный тег белого списка; содержимого у него нет.
 _VOID_TAG = "break"
@@ -84,6 +92,41 @@ def drop_markup(text: str) -> str:
         Текст без единого тега.
     """
     return _SPACE_PATTERN.sub(" ", _TAG_PATTERN.sub("", text)).strip()
+
+
+def split_into_chunks(text: str, budget: int) -> list[str]:
+    """
+    Режет текст на куски, каждый не длиннее бюджета символов.
+
+    Рез идёт по концам предложений, предложение длиннее бюджета дорезается по
+    пробелам. Границы внутри тегов не берутся: разрезанный тег ушёл бы в речь
+    мусором. Длина куска считается по тексту без разметки: столько же символов
+    считает модель.
+
+    Аргументы:
+        text: текст с разметкой или без неё.
+        budget: сколько символов без разметки помещается в один кусок.
+
+    Возвращает:
+        Куски в порядке чтения. Слово длиннее бюджета остаётся куском длиннее
+        бюджета: резать дальше нечего.
+    """
+    chunks: list[str] = []
+
+    for sentence in _SENTENCE_SPLIT_PATTERN.split(text):
+        if len(drop_markup(text = sentence)) <= budget:
+            parts = [sentence]
+        else:
+            parts = _WORD_SPLIT_PATTERN.split(sentence)
+
+        for part in parts:
+            merged = f"{chunks[-1]} {part}" if chunks else part
+            if chunks and len(drop_markup(text = merged)) <= budget:
+                chunks[-1] = merged
+            else:
+                chunks.append(part)
+
+    return [chunk.strip() for chunk in chunks if chunk.strip()]
 
 
 def wrap_speech_parts(body: str) -> str:

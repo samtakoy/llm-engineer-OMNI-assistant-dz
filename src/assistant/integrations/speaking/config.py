@@ -26,6 +26,8 @@ class SpeakingConfig:
         put_yo: восстанавливать букву ё. Ограничение то же, что у ударений.
         hub_directory: куда torch.hub складывает копию репозитория silero и
             файл весов модели; None - каталог torch по умолчанию.
+        max_symbols: сколько символов без разметки помещается в один кусок
+            синтеза. Текст длиннее режется по предложениям.
     """
 
     model_id: str
@@ -35,3 +37,4 @@ class SpeakingConfig:
     put_accent: bool
     put_yo: bool
     hub_directory: Path | None
+    max_symbols: int

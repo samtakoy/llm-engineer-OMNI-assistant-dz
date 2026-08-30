@@ -6,7 +6,8 @@ SpeechSynthesizer отдаёт список голосов модели и оз�
 озвучке и остаётся в поле объекта.
 
 Кусок речи собирается из частей: каждая часть звучит своим голосом, между
-частями кладётся тишина, всё вместе ложится в один файл.
+частями кладётся тишина, всё вместе ложится в один файл. Часть длиннее бюджета
+символов режется на чанки и озвучивается по одному, отсчёты склеиваются встык.
 
 Разметка в тексте и ненейтральные темп с высотой уходят в модель как ssml,
 чистый текст с нейтральными настройками - как текст с ударениями и буквой ё:
@@ -23,7 +24,7 @@ from typing import Any
 
 from .config import SpeakingConfig
 from .effects import apply_effect
-from .markup import drop_markup, sanitize_markup, wrap_speech_parts
+from .markup import drop_markup, sanitize_markup, split_into_chunks, wrap_speech_parts
 from .outcomes import SynthesisOutcome
 from .voices import VoiceSettings
 
@@ -157,6 +158,10 @@ class SpeechSynthesizer:
         """
         Озвучивает одну часть куска и накладывает на неё звуковой эффект.
 
+        Текст длиннее бюджета символов режется на чанки, каждый озвучивается
+        отдельно, отсчёты склеиваются встык: моделью текст берётся одной
+        последовательностью, и на длинном разделе синтез срывается.
+
         Аргументы:
             model: загруженная модель silero.
             text: что произнести.
@@ -165,6 +170,8 @@ class SpeechSynthesizer:
         Возвращает:
             Пару «отсчёты звука, причина неудачи». При неудаче отсчёты None.
         """
+        import torch
+
         spoken_text = text.strip()
         if not spoken_text:
             return None, "озвучивать нечего"
@@ -172,15 +179,23 @@ class SpeechSynthesizer:
         if settings.speaker not in model.speakers:
             return None, f"голоса {settings.speaker} нет в модели {self._config.model_id}"
 
-        plain_text = drop_markup(text = spoken_text)
-        audio, synthesis_error = self._synthesized_audio(
-            model = model,
-            plain_text = plain_text,
-            marked_text = spoken_text,
-            settings = settings,
-        )
-        if audio is None:
-            return None, synthesis_error
+        rendered: list[Any] = []
+        for chunk in split_into_chunks(text = spoken_text, budget = self._config.max_symbols):
+            chunk_audio, synthesis_error = self._synthesized_audio(
+                model = model,
+                plain_text = drop_markup(text = chunk),
+                marked_text = chunk,
+                settings = settings,
+            )
+            if chunk_audio is None:
+                return None, synthesis_error
+
+            rendered.append(chunk_audio)
+
+        if not rendered:
+            return None, "озвучивать нечего"
+
+        audio = torch.cat(rendered)
 
         audio, effect_error = apply_effect(
             audio = audio,

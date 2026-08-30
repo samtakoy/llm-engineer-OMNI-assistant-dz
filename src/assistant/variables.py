@@ -211,6 +211,11 @@ SPEAKING_PUT_YO = os.getenv("SPEAKING_PUT_YO", "1").strip().lower() in ("1", "tr
 # умолчанию, общий для всех проектов на машине.
 SPEAKING_HUB_DIR = os.getenv("SPEAKING_HUB_DIR", str(PROJECT_ROOT / ".cache" / "silero")).strip()
 
+# Сколько символов без разметки уходит в модель за раз. Silero предупреждает
+# после 1000 и считает их по тексту без тегов; ударения расставляются после этой
+# проверки и удлиняют последовательность, поэтому порог ниже названного моделью.
+SPEAKING_MAX_SYMBOLS = int(os.getenv("SPEAKING_MAX_SYMBOLS", "900"))
+
 # Голоса диктора, читающего заголовки разделов. Пол диктора противоположен полу
 # рассказчика: женскому рассказчику отвечает мужской голос, остальным - женский.
 # Имена принадлежат версии модели из SPEAKING_MODEL_ID: на версии, которая их не
@@ -230,4 +235,5 @@ SPEAKING_CONFIG = SpeakingConfig(
     put_accent = SPEAKING_PUT_ACCENT,
     put_yo = SPEAKING_PUT_YO,
     hub_directory = _cache_directory(raw_path = SPEAKING_HUB_DIR),
+    max_symbols = SPEAKING_MAX_SYMBOLS,
 )

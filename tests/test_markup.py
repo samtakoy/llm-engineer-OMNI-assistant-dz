@@ -1,8 +1,8 @@
 """
-Тесты санитайзера разметки ssml. Модели не запускаются.
+Тесты санитайзера разметки ssml и резки текста на куски. Модели не запускаются.
 """
 
-from assistant.integrations.speaking import sanitize_markup, wrap_speech_parts
+from assistant.integrations.speaking import sanitize_markup, split_into_chunks, wrap_speech_parts
 
 
 def test_plain_text_stays_plain() -> None:
@@ -147,3 +147,54 @@ def test_pause_survives_sentence_wrapping() -> None:
     expected = '<p><s>Раз.</s><s><break time="500ms"/>Два.</s></p>'
 
     assert wrap_speech_parts(body = body) == expected
+
+
+def test_short_text_stays_one_chunk() -> None:
+    """
+    Проверяет, что текст короче бюджета уходит одним куском.
+    """
+    assert split_into_chunks(text = "Раз. Два. Три.", budget = 100) == ["Раз. Два. Три."]
+
+
+def test_long_text_splits_by_sentences() -> None:
+    """
+    Проверяет, что текст длиннее бюджета режется по концу предложения.
+    """
+    text = f"{'а' * 30}. {'б' * 30}. {'в' * 30}."
+
+    assert split_into_chunks(text = text, budget = 65) == [f"{'а' * 30}. {'б' * 30}.", f"{'в' * 30}."]
+
+
+def test_pause_survives_splitting() -> None:
+    """
+    Проверяет, что пауза не разрезается и не тратит бюджет.
+    """
+    text = f"{'а' * 30}. <break time=\"500ms\"/>{'б' * 30}."
+
+    assert split_into_chunks(text = text, budget = 65) == [text]
+
+
+def test_long_sentence_splits_by_words() -> None:
+    """
+    Проверяет, что предложение длиннее бюджета дорезается по пробелам.
+    """
+    text = f"{'а' * 30} {'б' * 30} {'в' * 30}."
+
+    assert split_into_chunks(text = text, budget = 65) == [f"{'а' * 30} {'б' * 30}", f"{'в' * 30}."]
+
+
+def test_tags_survive_word_splitting() -> None:
+    """
+    Проверяет, что рез по пробелам не рассекает тег с атрибутом.
+    """
+    text = f"{'а' * 30} <break time=\"500ms\"/>{'б' * 30} {'в' * 30}"
+
+    for chunk in split_into_chunks(text = text, budget = 65):
+        assert chunk.count("<") == chunk.count(">")
+
+
+def test_long_word_stays_whole() -> None:
+    """
+    Проверяет, что слово длиннее бюджета остаётся одним куском: резать нечего.
+    """
+    assert split_into_chunks(text = "а" * 50, budget = 10) == ["а" * 50]
