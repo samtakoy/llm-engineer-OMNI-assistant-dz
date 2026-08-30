@@ -13,11 +13,12 @@
 Тем же идентификатором называется файл журнала.
 """
 
+from collections.abc import Iterator
 from dataclasses import dataclass
 from datetime import datetime
 
 from langchain_core.callbacks import BaseCallbackHandler
-from langchain_core.messages import HumanMessage
+from langchain_core.messages import HumanMessage, ToolMessage
 from langgraph.checkpoint.base import BaseCheckpointSaver
 from langgraph.graph import END, START, StateGraph
 
@@ -102,14 +103,67 @@ def _run_config(run_id: str, callbacks: list[BaseCallbackHandler]) -> dict:
     }
 
 
-def run_research(
+@dataclass(frozen = True)
+class ResearchStep:
+    """
+    Шаг графа: чем закончился очередной узел.
+
+    Атрибуты:
+        node: имя узла.
+        tool_calls: вызовы инструментов, объявленные узлом: пары «имя, аргументы».
+        tool_results: исходы вызовов: пары «имя инструмента, исход вызова».
+        notes: фактическая опора, если узел её дал; иначе None.
+        answer: итоговый текст, если узел его дал; иначе None.
+    """
+
+    node: str
+    tool_calls: list[tuple[str, dict]]
+    tool_results: list[tuple[str, str]]
+    notes: ResearchNotes | None
+    answer: Answer | None
+
+
+def _step_of(node: str, update: dict) -> ResearchStep:
+    """
+    Разбирает обновление состояния, пришедшее от узла.
+
+    Аргументы:
+        node: имя узла.
+        update: обновление состояния, отданное узлом.
+
+    Возвращает:
+        Шаг графа с объявленными вызовами, их исходами, опорой и текстом.
+    """
+    messages = update.get("messages") or []
+
+    tool_calls = [
+        (call["name"], call["args"])
+        for message in messages
+        for call in getattr(message, "tool_calls", None) or []
+    ]
+    tool_results = [
+        (message.name or "инструмент", str(message.artifact))
+        for message in messages
+        if isinstance(message, ToolMessage)
+    ]
+
+    return ResearchStep(
+        node = node,
+        tool_calls = tool_calls,
+        tool_results = tool_results,
+        notes = update.get("notes"),
+        answer = update.get("answer"),
+    )
+
+
+def run_research_staged(
     question: str,
     narrator_prompt: str | None,
     run_id: str,
     callbacks: list[BaseCallbackHandler],
-) -> tuple[Answer, ResearchNotes]:
+) -> Iterator[ResearchStep]:
     """
-    Прогоняет вопрос через граф.
+    Прогоняет вопрос через граф, отдавая шаг после каждого узла.
 
     Аргументы:
         question: вопрос пользователя.
@@ -119,7 +173,7 @@ def run_research(
         callbacks: слушатели прогона.
 
     Возвращает:
-        Кортеж из итогового текста и фактической опоры, на которой он построен.
+        Шаги графа по одному в порядке прохождения узлов.
     """
     checkpointer = open_checkpointer(directory = CHECKPOINT_DIR)
 
@@ -135,12 +189,18 @@ def run_research(
         "answer": None,
     }
 
-    final_state = build_graph(checkpointer = checkpointer).invoke(
+    stream = build_graph(checkpointer = checkpointer).stream(
         initial_state,
         config = _run_config(run_id = run_id, callbacks = callbacks),
+        stream_mode = "updates",
     )
 
-    return final_state["answer"], final_state["notes"]
+    for update in stream:
+        # Под ключом лежит обновление состояния от узла, но служебные ключи
+        # langgraph несут не словарь, и разбирать их нечего.
+        for node, state_update in update.items():
+            if isinstance(state_update, dict):
+                yield _step_of(node = node, update = state_update)
 
 
 @dataclass(frozen = True)

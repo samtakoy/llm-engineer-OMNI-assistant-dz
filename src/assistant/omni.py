@@ -6,7 +6,8 @@
 Stopwatch и возвращает рядом с ответом.
 """
 
-from dataclasses import dataclass
+from collections.abc import Iterator
+from dataclasses import dataclass, replace
 from datetime import datetime
 from pathlib import Path
 
@@ -16,10 +17,11 @@ from langchain_openai import ChatOpenAI
 from assistant.graph import (
     Answer,
     ResearchNotes,
+    ResearchStep,
     describe_nodes,
     new_run_id,
     resume_research,
-    run_research,
+    run_research_staged,
 )
 from assistant.integrations.listening import SILENCE_LEVEL, SpeechRecognizer, record
 from assistant.integrations.llm.client import build_llm
@@ -107,6 +109,21 @@ class OmniOutcome:
     audio_paths: list[Path]
     timing: Stopwatch
     error: str
+
+
+@dataclass(frozen = True)
+class OmniStage:
+    """
+    Снимок прогона после очередного события.
+
+    Атрибуты:
+        name: что произошло: имя завершённого этапа либо событие внутри
+            этапа - объявленный вызов инструмента или его исход.
+        outcome: исход в том виде, в каком он собран на этот момент.
+    """
+
+    name: str
+    outcome: OmniOutcome
 
 
 def resolve_question(
@@ -248,6 +265,48 @@ def build_narrator_from_image(
     return render_narrator_prompt(persona = persona), persona, look, ""
 
 
+def call_argument(arguments: dict) -> str:
+    """
+    Сжимает аргументы вызова инструмента до одной строки.
+
+    Имена аргументов не перечисляются: у каждого инструмента они свои, а в
+    строке хода прогона важно само значение - запрос или адрес.
+
+    Аргументы:
+        arguments: аргументы вызова.
+
+    Возвращает:
+        Значения аргументов через запятую. Пустую строку, если аргументов нет.
+    """
+    return ", ".join(str(value) for value in arguments.values())
+
+
+def research_lines(step: ResearchStep) -> list[str]:
+    """
+    Превращает шаг графа в строки хода прогона.
+
+    Аргументы:
+        step: шаг графа.
+
+    Возвращает:
+        По строке на каждый объявленный вызов инструмента и на каждый его исход,
+        плюс строку про собранные факты и про написанный текст. Шаг без вызовов
+        и без итога строк не даёт.
+    """
+    lines = [
+        f"вызов {name}: {call_argument(arguments = arguments)}"
+        for name, arguments in step.tool_calls
+    ]
+    lines.extend(f"{name} - {result}" for name, result in step.tool_results)
+
+    if step.notes is not None:
+        lines.append("факты собраны")
+    if step.answer is not None:
+        lines.append("текст написан")
+
+    return lines
+
+
 def default_voice(speakers: list[str]) -> NarratorVoice:
     """
     Собирает настройки голоса для прогона без персонажа.
@@ -314,6 +373,22 @@ class SpokenPiece:
     text: str
 
 
+@dataclass(frozen = True)
+class SpeechProgress:
+    """
+    Снимок озвучки после очередного этапа.
+
+    Атрибуты:
+        name: имя завершённого этапа.
+        voice: настройки голоса персонажа; None - подобрать голос не вышло.
+        paths: файлы с озвучкой, готовые к этому моменту, в порядке произнесения.
+    """
+
+    name: str
+    voice: NarratorVoice | None
+    paths: list[Path]
+
+
 def split_into_pieces(answer: Answer) -> list[SpokenPiece]:
     """
     Режет ответ на куски для озвучки.
@@ -364,7 +439,7 @@ def speech_parts(
     ]
 
 
-def speak_answer(
+def speak_answer_staged(
     answer: Answer,
     narrator_prompt: str,
     settings: VoiceSettings,
@@ -374,9 +449,9 @@ def speak_answer(
     is_markup_on: bool,
     timing: Stopwatch,
     callbacks: list[BaseCallbackHandler],
-) -> list[Path]:
+) -> Iterator[tuple[int, Path]]:
     """
-    Озвучивает ответ по кускам, печатая каждый готовый файл сразу.
+    Озвучивает ответ по кускам, отдавая каждый готовый файл сразу.
 
     Заголовок раздела читает диктор, тело раздела - персонаж, обе озвучки
     ложатся в один файл. Разметку получает только тело.
@@ -395,10 +470,10 @@ def speak_answer(
         callbacks: слушатели прогона; журнал заводит вызывающий.
 
     Возвращает:
-        Файлы с озвучкой в порядке произнесения. Неудачные куски пропускаются.
+        Пары «номер куска, файл с озвучкой» по одной, в порядке произнесения.
+        Неудачные куски пропускаются.
     """
     stamp = datetime.now().strftime("%Y-%m-%dT%H-%M-%S")
-    paths: list[Path] = []
 
     for index, piece in enumerate(split_into_pieces(answer = answer), start = 1):
         spoken_text = piece.text
@@ -433,108 +508,71 @@ def speak_answer(
             continue
 
         log_spoken(index = index, path = outcome.path, seconds = outcome.seconds)
-        paths.append(outcome.path)
-
-    return paths
+        yield index, outcome.path
 
 
-def failed_outcome(
-    question: str,
-    look: str,
-    trace_path: Path | None,
-    timing: Stopwatch,
-    error: str,
-) -> OmniOutcome:
+def empty_outcome(trace_path: Path | None, timing: Stopwatch) -> OmniOutcome:
     """
-    Собирает исход прогона, оборвавшегося до готового текста.
+    Заводит пустой исход прогона, который дальше наполняется по ходу этапов.
 
     Аргументы:
-        question: вопрос пользователя; пустая строка, если добыть его не вышло.
-        look: описание облика; пустая строка, если облика не было.
         trace_path: файл журнала прогона; None, если журнал выключен.
         timing: копилка замеров.
-        error: причина неудачи.
 
     Возвращает:
-        Исход прогона без ответа и озвучки.
+        Исход без вопроса, текста, рассказчика и озвучки.
     """
     return OmniOutcome(
-        question = question,
+        question = "",
         answer = None,
         notes = None,
         persona = None,
         narrator_prompt = "",
-        look = look,
+        look = "",
         trace_path = trace_path,
         voice = None,
         audio_paths = [],
-        timing = timing,
-        error = error,
-    )
-
-
-def finish_run(
-    question: str,
-    answer: Answer,
-    notes: ResearchNotes,
-    persona: Persona | None,
-    narrator_prompt: str,
-    look: str,
-    trace_path: Path | None,
-    is_speech_on: bool,
-    is_markup_on: bool,
-    timing: Stopwatch,
-    callbacks: list[BaseCallbackHandler],
-) -> OmniOutcome:
-    """
-    Озвучивает готовый текст и собирает исход прогона.
-
-    Аргументы:
-        question: вопрос пользователя.
-        answer: итоговый текст.
-        notes: фактическая опора.
-        persona: рассказчик полями; None - рассказчик задан фразой или его нет.
-        narrator_prompt: блок про рассказчика; пустая строка, если рассказчика нет.
-        look: описание облика; пустая строка, если фотографии не было.
-        trace_path: файл журнала прогона; None, если журнал выключен.
-        is_speech_on: озвучивать готовый текст.
-        is_markup_on: размечать текст перед озвучкой.
-        timing: копилка замеров.
-        callbacks: слушатели прогона; журнал заводит вызывающий.
-
-    Возвращает:
-        Исход прогона с текстом, опорой и озвучкой.
-    """
-    voice: VoiceSettings | None = None
-    audio_paths: list[Path] = []
-
-    if is_speech_on:
-        voice, audio_paths = speak_outcome(
-            answer = answer,
-            narrator_prompt = narrator_prompt,
-            is_markup_on = is_markup_on,
-            timing = timing,
-            callbacks = callbacks,
-        )
-
-    log_timing(timing = timing)
-
-    return OmniOutcome(
-        question = question,
-        answer = answer,
-        notes = notes,
-        persona = persona,
-        narrator_prompt = narrator_prompt,
-        look = look,
-        trace_path = trace_path,
-        voice = voice,
-        audio_paths = audio_paths,
         timing = timing,
         error = "",
     )
 
 
-def run_omni_assistant(
+def finish_run_staged(
+    outcome: OmniOutcome,
+    is_speech_on: bool,
+    is_markup_on: bool,
+    callbacks: list[BaseCallbackHandler],
+) -> Iterator[OmniStage]:
+    """
+    Озвучивает готовый текст и отдаёт снимок прогона после каждого этапа озвучки.
+
+    Аргументы:
+        outcome: исход прогона с готовым текстом и фактической опорой.
+        is_speech_on: озвучивать готовый текст.
+        is_markup_on: размечать текст перед озвучкой.
+        callbacks: слушатели прогона; журнал заводит вызывающий.
+
+    Возвращает:
+        Снимки прогона по одному: по снимку на каждый этап озвучки и последний
+        снимок с полным исходом.
+    """
+    if is_speech_on:
+        for progress in speak_outcome_staged(
+            answer = outcome.answer,
+            narrator_prompt = outcome.narrator_prompt,
+            is_markup_on = is_markup_on,
+            timing = outcome.timing,
+            callbacks = callbacks,
+        ):
+            outcome = replace(outcome, voice = progress.voice, audio_paths = progress.paths)
+            yield OmniStage(name = progress.name, outcome = outcome)
+
+    log_timing(timing = outcome.timing)
+
+    yield OmniStage(name = "готово", outcome = outcome)
+
+
+def run_omni_assistant_staged(
     image_path: Path | None,
     narrator_style: str | None,
     persona_mode: PersonaMode,
@@ -543,9 +581,9 @@ def run_omni_assistant(
     record_seconds: float | None,
     is_speech_on: bool,
     is_markup_on: bool,
-) -> OmniOutcome:
+) -> Iterator[OmniStage]:
     """
-    Проводит экскурсию по вопросу от лица заданного рассказчика.
+    Проводит экскурсию по вопросу, отдавая снимок прогона после каждого этапа.
 
     Вопрос берётся из одного из трёх источников: текстом, из файла с записью или
     с микрофона. Рассказчик берётся из фотографии либо из готовой фразы. Без
@@ -564,7 +602,8 @@ def run_omni_assistant(
         is_markup_on: размечать текст перед озвучкой.
 
     Возвращает:
-        Исход прогона: текст экскурсии с опорой и озвучкой либо причина неудачи.
+        Снимки прогона по одному, от разобранного вопроса до готовой озвучки.
+        Оборвавшийся прогон отдаёт последним снимок с причиной неудачи.
     """
     timing = Stopwatch()
     run_id = new_run_id()
@@ -572,9 +611,8 @@ def run_omni_assistant(
     with trace_run(trace_id = run_id, node_rows = describe_nodes(), origin_rows = []) as trace:
         trace_path = trace.path() if trace is not None else None
         callbacks: list[BaseCallbackHandler] = [trace] if trace is not None else []
-        persona: Persona | None = None
-        narrator_prompt = ""
-        look = ""
+
+        outcome = empty_outcome(trace_path = trace_path, timing = timing)
 
         question, error = resolve_question(
             question_text = question_text,
@@ -586,13 +624,18 @@ def run_omni_assistant(
             error = "вопрос пустой"
         if error:
             log_timing(timing = timing)
-            return failed_outcome(
-                question = question,
-                look = "",
-                trace_path = trace_path,
-                timing = timing,
-                error = error,
+            yield OmniStage(
+                name = "неудача",
+                outcome = replace(outcome, question = question, error = error),
             )
+            return
+
+        outcome = replace(outcome, question = question)
+        yield OmniStage(name = "вопрос", outcome = outcome)
+
+        persona: Persona | None = None
+        narrator_prompt = ""
+        look = ""
 
         if narrator_style is not None:
             narrator_prompt = narrator_style
@@ -606,46 +649,107 @@ def run_omni_assistant(
             )
             if error:
                 log_timing(timing = timing)
-                return failed_outcome(
-                    question = question,
-                    look = look,
-                    trace_path = trace_path,
-                    timing = timing,
-                    error = error,
+                yield OmniStage(
+                    name = "неудача",
+                    outcome = replace(outcome, look = look, error = error),
                 )
+                return
+
+        if narrator_prompt:
+            outcome = replace(
+                outcome,
+                persona = persona,
+                narrator_prompt = narrator_prompt,
+                look = look,
+            )
+            yield OmniStage(name = "рассказчик", outcome = outcome)
 
         with timing.stage(name = "ресёрч"):
-            answer, notes = run_research(
+            for step in run_research_staged(
                 question = question,
                 narrator_prompt = narrator_prompt or None,
                 run_id = run_id,
                 callbacks = callbacks,
-            )
+            ):
+                if step.notes is not None:
+                    outcome = replace(outcome, notes = step.notes)
+                if step.answer is not None:
+                    outcome = replace(outcome, answer = step.answer)
 
-        return finish_run(
-            question = question,
-            answer = answer,
-            notes = notes,
-            persona = persona,
-            narrator_prompt = narrator_prompt,
-            look = look,
-            trace_path = trace_path,
+                for line in research_lines(step = step):
+                    yield OmniStage(name = line, outcome = outcome)
+
+        if outcome.answer is None or outcome.notes is None:
+            log_timing(timing = timing)
+            yield OmniStage(
+                name = "неудача",
+                outcome = replace(outcome, error = "граф не дал готового текста"),
+            )
+            return
+
+        yield from finish_run_staged(
+            outcome = outcome,
             is_speech_on = is_speech_on,
             is_markup_on = is_markup_on,
-            timing = timing,
             callbacks = callbacks,
         )
 
 
-def resume_omni_assistant(
+def run_omni_assistant(
+    image_path: Path | None,
+    narrator_style: str | None,
+    persona_mode: PersonaMode,
+    question_text: str | None,
+    audio_path: Path | None,
+    record_seconds: float | None,
+    is_speech_on: bool,
+    is_markup_on: bool,
+) -> OmniOutcome:
+    """
+    Проводит экскурсию по вопросу от лица заданного рассказчика.
+
+    Промежуточные снимки прогона не нужны: возвращается только последний.
+
+    Аргументы:
+        image_path: файл с фотографией персонажа; None - без фотографии.
+        narrator_style: готовая фраза про голос рассказчика; None - без неё.
+        persona_mode: способ сборки рассказчика по фотографии.
+        question_text: вопрос текстом; None - вопрос задан иначе.
+        audio_path: файл с записью вопроса; None - вопрос задан иначе.
+        record_seconds: сколько секунд писать с микрофона; RECORD_UNTIL_ENTER и
+            меньше - до нажатия Enter; None - вопрос задан иначе.
+        is_speech_on: озвучивать готовый текст.
+        is_markup_on: размечать текст перед озвучкой.
+
+    Возвращает:
+        Исход прогона: текст экскурсии с опорой и озвучкой либо причина неудачи.
+    """
+    outcome: OmniOutcome | None = None
+
+    for stage in run_omni_assistant_staged(
+        image_path = image_path,
+        narrator_style = narrator_style,
+        persona_mode = persona_mode,
+        question_text = question_text,
+        audio_path = audio_path,
+        record_seconds = record_seconds,
+        is_speech_on = is_speech_on,
+        is_markup_on = is_markup_on,
+    ):
+        outcome = stage.outcome
+
+    return outcome
+
+
+def resume_omni_assistant_staged(
     resume_run_id: str,
     from_node: str,
     narrator_style: str | None,
     is_speech_on: bool,
     is_markup_on: bool,
-) -> OmniOutcome:
+) -> Iterator[OmniStage]:
     """
-    Переигрывает записанный прогон с указанного узла.
+    Переигрывает записанный прогон, отдавая снимок после каждого этапа.
 
     Вопрос и рассказчик берутся из снимка. Готовая фраза про рассказчика
     заменяет записанную. Персонажа полями в снимке нет, поэтому голос и разметка
@@ -660,7 +764,8 @@ def resume_omni_assistant(
         is_markup_on: размечать текст перед озвучкой.
 
     Возвращает:
-        Исход прогона: текст экскурсии с опорой и озвучкой либо причина неудачи.
+        Снимки прогона по одному, от продолженного текста до готовой озвучки.
+        Оборвавшийся прогон отдаёт последним снимок с причиной неудачи.
     """
     timing = Stopwatch()
 
@@ -677,6 +782,8 @@ def resume_omni_assistant(
         trace_path = trace.path() if trace is not None else None
         callbacks: list[BaseCallbackHandler] = [trace] if trace is not None else []
 
+        outcome = empty_outcome(trace_path = trace_path, timing = timing)
+
         with timing.stage(name = "продолжение"):
             resumed = resume_research(
                 run_id = resume_run_id,
@@ -691,38 +798,74 @@ def resume_omni_assistant(
 
         if error:
             log_timing(timing = timing)
-            return failed_outcome(
-                question = resumed.question,
-                look = "",
-                trace_path = trace_path,
-                timing = timing,
-                error = error,
+            yield OmniStage(
+                name = "неудача",
+                outcome = replace(outcome, question = resumed.question, error = error),
             )
+            return
 
-        return finish_run(
+        outcome = replace(
+            outcome,
             question = resumed.question,
             answer = resumed.answer,
             notes = resumed.notes,
-            persona = None,
             narrator_prompt = resumed.narrator_prompt,
-            look = "",
-            trace_path = trace_path,
+        )
+
+        yield from finish_run_staged(
+            outcome = outcome,
             is_speech_on = is_speech_on,
             is_markup_on = is_markup_on,
-            timing = timing,
             callbacks = callbacks,
         )
 
 
-def speak_outcome(
+def resume_omni_assistant(
+    resume_run_id: str,
+    from_node: str,
+    narrator_style: str | None,
+    is_speech_on: bool,
+    is_markup_on: bool,
+) -> OmniOutcome:
+    """
+    Переигрывает записанный прогон с указанного узла.
+
+    Промежуточные снимки прогона не нужны: возвращается только последний.
+
+    Аргументы:
+        resume_run_id: идентификатор записанного прогона.
+        from_node: узел, с которого продолжать.
+        narrator_style: готовая фраза про голос рассказчика; None - взять
+            записанную.
+        is_speech_on: озвучивать готовый текст.
+        is_markup_on: размечать текст перед озвучкой.
+
+    Возвращает:
+        Исход прогона: текст экскурсии с опорой и озвучкой либо причина неудачи.
+    """
+    outcome: OmniOutcome | None = None
+
+    for stage in resume_omni_assistant_staged(
+        resume_run_id = resume_run_id,
+        from_node = from_node,
+        narrator_style = narrator_style,
+        is_speech_on = is_speech_on,
+        is_markup_on = is_markup_on,
+    ):
+        outcome = stage.outcome
+
+    return outcome
+
+
+def speak_outcome_staged(
     answer: Answer,
     narrator_prompt: str,
     is_markup_on: bool,
     timing: Stopwatch,
     callbacks: list[BaseCallbackHandler],
-) -> tuple[NarratorVoice | None, list[Path]]:
+) -> Iterator[SpeechProgress]:
     """
-    Подбирает голос и озвучивает готовый текст.
+    Подбирает голос и озвучивает готовый текст, отдавая снимок после каждого куска.
 
     Аргументы:
         answer: итоговый текст.
@@ -733,8 +876,9 @@ def speak_outcome(
         callbacks: слушатели прогона; журнал заводит вызывающий.
 
     Возвращает:
-        Пару «настройки голоса, файлы с озвучкой». При неудаче настройки None,
-        список пустой.
+        Снимки озвучки по одному: сначала подобранный голос без файлов, дальше по
+        снимку на каждый готовый кусок. Недоступный синтез даёт один снимок без
+        голоса и без файлов.
     """
     synthesizer = SpeechSynthesizer(config = SPEAKING_CONFIG)
 
@@ -742,7 +886,8 @@ def speak_outcome(
         speakers, error = synthesizer.available_speakers()
     if error:
         log_voices_missing(reason = error)
-        return None, []
+        yield SpeechProgress(name = "синтез недоступен", voice = None, paths = [])
+        return
 
     writing_llm = build_llm(
         role = NodeRole.WRITING,
@@ -770,8 +915,11 @@ def speak_outcome(
             settings = default_voice(speakers = speakers)
 
     log_voice(settings = settings)
+    yield SpeechProgress(name = "голос", voice = settings, paths = [])
 
-    paths = speak_answer(
+    paths: list[Path] = []
+
+    for index, path in speak_answer_staged(
         answer = answer,
         narrator_prompt = narrator_prompt,
         settings = settings,
@@ -784,6 +932,6 @@ def speak_outcome(
         is_markup_on = is_markup_on,
         timing = timing,
         callbacks = callbacks,
-    )
-
-    return settings, paths
+    ):
+        paths.append(path)
+        yield SpeechProgress(name = f"озвучка {index}", voice = settings, paths = list(paths))
