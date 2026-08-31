@@ -95,7 +95,7 @@ VISION_CACHE_BYPASS = os.getenv("VISION_CACHE_BYPASS", "").strip().lower() in ("
 # structured - поля схемы Persona.
 # Значение разбирает точка входа: пакет persona читает variables, и обратный
 # импорт замкнул бы кольцо.
-PERSONA_MODE = os.getenv("PERSONA_MODE", "free").strip().lower()
+PERSONA_MODE = os.getenv("PERSONA_MODE", "structured").strip().lower()
 
 # --- Веб-слой ------------------------------------------------------------
 # Строка User-Agent для запросов к сайтам. Wikimedia и часть других площадок

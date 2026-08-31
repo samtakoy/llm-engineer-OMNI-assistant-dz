@@ -14,13 +14,12 @@ class PersonaMode(Enum):
     """
     Способ превратить облик в указание рассказчику.
 
-    Атрибуты:
-        FREE: одна свободная фраза.
         STRUCTURED: поля схемы Persona, разложенные по шаблону.
+        FREE: одна свободная фраза.
     """
 
-    FREE = "free"
     STRUCTURED = "structured"
+    FREE = "free"
 
 
 class Persona(BaseModel):
