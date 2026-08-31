@@ -1,58 +1,63 @@
 """
-Схема настроек голоса: имя голоса, темп и высота речи, звуковой эффект.
+Настройки голоса для синтеза: имя голоса, темп и высота речи, звуковой эффект.
+
+Значения темпа, высоты и силы эффекта объявлены отдельными типами: их знает
+разметка ssml, и по ним же собирается схема ответа модели, подбирающей голос.
 """
 
 from typing import Literal, get_args
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel
+
+Rate = Literal["slow", "medium", "fast"]
+Pitch = Literal["x-low", "low", "medium", "high", "x-high"]
+EffectStrength = Literal["low", "medium", "high"]
 
 
 class VoiceSettings(BaseModel):
-    """Настройки синтеза под характер персонажа."""
+    """
+    Настройки синтеза одного куска речи.
 
-    speaker: str = Field(
-        description = "Имя голоса из доступных в модели синтеза"
-    )
-    rate: Literal["slow", "medium", "fast"] = Field(
-        description = "Темп речи персонажа"
-    )
-    pitch: Literal["x-low", "low", "medium", "high", "x-high"] = Field(
-        description = "Высота голоса персонажа"
-    )
-    effect: str = Field(
-        description = "Имя звукового эффекта из доступных"
-    )
-    effect_strength: Literal["low", "medium", "high"] = Field(
-        description = "Сила звукового эффекта"
-    )
+    Атрибуты:
+        speaker: имя голоса, которое знает загруженная модель синтеза.
+        rate: темп речи.
+        pitch: высота голоса.
+        effect: имя звукового эффекта из реестра эффектов.
+        effect_strength: сила звукового эффекта.
+    """
+
+    speaker: str
+    rate: Rate
+    pitch: Pitch
+    effect: str
+    effect_strength: EffectStrength
 
 
 def rate_values() -> tuple[str, ...]:
     """
-    Отдаёт значения темпа, которые принимает схема.
+    Отдаёт значения темпа, которые принимает синтез.
 
     Возвращает:
         Значения в порядке объявления.
     """
-    return get_args(VoiceSettings.model_fields["rate"].annotation)
+    return get_args(Rate)
 
 
 def pitch_values() -> tuple[str, ...]:
     """
-    Отдаёт значения высоты, которые принимает схема.
+    Отдаёт значения высоты, которые принимает синтез.
 
     Возвращает:
         Значения в порядке объявления.
     """
-    return get_args(VoiceSettings.model_fields["pitch"].annotation)
+    return get_args(Pitch)
 
 
 def strength_values() -> tuple[str, ...]:
     """
-    Отдаёт значения силы эффекта, которые принимает схема.
+    Отдаёт значения силы эффекта, которые принимает синтез.
 
     Возвращает:
         Значения в порядке объявления.
     """
-    return get_args(VoiceSettings.model_fields["effect_strength"].annotation)
-
+    return get_args(EffectStrength)

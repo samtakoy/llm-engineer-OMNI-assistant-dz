@@ -54,7 +54,7 @@ from assistant.logs import (
 )
 from assistant.observability import trace_run
 from assistant.persona import (
-    NarratorVoice,
+    UNKNOWN_GENDER,
     Persona,
     PersonaMode,
     build_narrator_style,
@@ -67,11 +67,11 @@ from assistant.persona import (
 from assistant.timing import Stopwatch
 from assistant.variables import (
     ENABLE_ALL_REASONING,
+    FEMALE_SPEAKER,
     LISTENING_CONFIG,
+    MALE_SPEAKER,
     SPEAKING_CONFIG,
     SPOKEN_PATH,
-    TITLE_FEMALE_SPEAKER,
-    TITLE_MALE_SPEAKER,
     VISION_MODEL,
     VISION_PROVIDER,
 )
@@ -269,7 +269,7 @@ def build_narrator_from_image(
     return render_narrator_prompt(persona = persona), persona, look, ""
 
 
-def default_voice(speakers: list[str]) -> NarratorVoice:
+def default_voice(speakers: list[str]) -> VoiceSettings:
     """
     Собирает настройки голоса для прогона без персонажа.
 
@@ -277,17 +277,28 @@ def default_voice(speakers: list[str]) -> NarratorVoice:
         speakers: имена голосов, которые знает модель синтеза.
 
     Возвращает:
-        Первый голос списка, нейтральные темп и высоту, без эффекта, пол
-        рассказчика неопределённый.
+        Первый голос списка, нейтральные темп и высоту, без эффекта.
     """
-    return NarratorVoice(
+    return VoiceSettings(
         speaker = speakers[0],
         rate = "medium",
         pitch = "medium",
         effect = NO_EFFECT,
         effect_strength = "medium",
-        narrator_gender = "неопределённый",
     )
+
+
+def speakers_by_gender() -> dict[str, str]:
+    """
+    Собирает голоса, чей пол проекту известен, по полу рассказчика.
+
+    Возвращает:
+        Пол рассказчика как ключ, имя голоса как значение.
+    """
+    return {
+        "мужской": MALE_SPEAKER,
+        "женский": FEMALE_SPEAKER,
+    }
 
 
 def title_voice(narrator_gender: str, speakers: list[str]) -> VoiceSettings | None:
@@ -305,7 +316,7 @@ def title_voice(narrator_gender: str, speakers: list[str]) -> VoiceSettings | No
     Возвращает:
         Настройки голоса диктора либо None, когда такого голоса в модели нет.
     """
-    speaker = TITLE_MALE_SPEAKER if narrator_gender == "женский" else TITLE_FEMALE_SPEAKER
+    speaker = MALE_SPEAKER if narrator_gender == "женский" else FEMALE_SPEAKER
 
     if speaker not in speakers:
         log_title_voice_missing(speaker = speaker)
@@ -879,24 +890,28 @@ def speak_outcome_staged(
         model = None,
     )
 
-    if not outcome.narrator_prompt:
-        settings = default_voice(speakers = speakers)
-    else:
+    settings = default_voice(speakers = speakers)
+    narrator_gender = UNKNOWN_GENDER
+
+    if outcome.narrator_prompt:
         extraction_llm = build_llm(
             role = NodeRole.EXTRACTION,
             is_reasoning_forced = ENABLE_ALL_REASONING,
             model = None,
         )
         with outcome.timing.stage(name = "подбор голоса"):
-            settings, error = pick_voice(
+            choice, error = pick_voice(
                 llm = extraction_llm,
                 narrator_prompt = outcome.narrator_prompt,
                 speakers = speakers,
+                speakers_by_gender = speakers_by_gender(),
                 callbacks = callbacks,
             )
         if error:
             log_voice_fallback(reason = error)
-            settings = default_voice(speakers = speakers)
+        else:
+            settings = choice.to_voice_settings()
+            narrator_gender = choice.narrator_gender
 
     log_voice(settings = settings)
     outcome = replace(outcome, voice = settings)
@@ -909,7 +924,7 @@ def speak_outcome_staged(
         narrator_prompt = outcome.narrator_prompt,
         settings = settings,
         title_settings = title_voice(
-            narrator_gender = settings.narrator_gender,
+            narrator_gender = narrator_gender,
             speakers = speakers,
         ),
         synthesizer = synthesizer,

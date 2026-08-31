@@ -13,7 +13,7 @@ from .prompts import (
     PERSONA_PROMPT,
     VOICE_PROMPT,
 )
-from .schemas import NarratorVoice, Persona, PersonaMode
+from .schemas import UNKNOWN_GENDER, Persona, PersonaMode, VoiceChoice
 from .voice import pick_voice
 
 __all__ = [
@@ -25,7 +25,8 @@ __all__ = [
     "mark_up_speech",
     "Persona",
     "PersonaMode",
-    "NarratorVoice",
+    "VoiceChoice",
+    "UNKNOWN_GENDER",
     "LOOK_PROMPT",
     "PERSONA_PROMPT",
     "NARRATOR_TEMPLATE",

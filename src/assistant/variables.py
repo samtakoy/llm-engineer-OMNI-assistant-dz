@@ -220,12 +220,13 @@ SPEAKING_HUB_DIR = os.getenv("SPEAKING_HUB_DIR", str(PROJECT_ROOT / ".cache" / "
 # проверки и удлиняют последовательность, поэтому порог ниже названного моделью.
 SPEAKING_MAX_SYMBOLS = int(os.getenv("SPEAKING_MAX_SYMBOLS", "900"))
 
-# Голоса диктора, читающего заголовки разделов. Пол диктора противоположен полу
-# рассказчика: женскому рассказчику отвечает мужской голос, остальным - женский.
-# Имена принадлежат версии модели из SPEAKING_MODEL_ID: на версии, которая их не
-# знает, диктор отключается и заголовок читает голос персонажа.
-TITLE_MALE_SPEAKER = os.getenv("TITLE_MALE_SPEAKER", "eugene").strip()
-TITLE_FEMALE_SPEAKER = os.getenv("TITLE_FEMALE_SPEAKER", "xenia").strip()
+# Голоса, чей пол проекту известен по имени. Отсюда берётся запасной голос
+# рассказчика, когда модель назвала голос вне списка, и голос диктора, читающего
+# заголовки разделов. Имена принадлежат версии модели из SPEAKING_MODEL_ID: на
+# версии, которая их не знает, диктор отключается и заголовок читает голос
+# персонажа, а запасным голосом становится первый голос списка.
+MALE_SPEAKER = os.getenv("MALE_SPEAKER", "eugene").strip()
+FEMALE_SPEAKER = os.getenv("FEMALE_SPEAKER", "xenia").strip()
 
 # Куда складывать озвученные файлы.
 SPOKEN_DIR = os.getenv("SPOKEN_DIR", "spoken").strip()
