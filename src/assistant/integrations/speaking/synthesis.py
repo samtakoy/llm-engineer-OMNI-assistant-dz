@@ -44,6 +44,14 @@ _MAX_AMPLITUDE = 32767
 # Темп и высота, при которых разметка не нужна.
 _NEUTRAL_PROSODY = "medium"
 
+# Темп речи процентами по меткам схемы голоса. Свои метки silero считает по
+# таблице 0.8 и 1.2: на слух это тараторенье и тягучесть.
+_RATE_PERCENTS = {
+    "slow": 90,
+    "medium": 100,
+    "fast": 110,
+}
+
 # Тишина между соседними частями куска речи.
 _PART_GAP_SECONDS = 0.35
 
@@ -511,11 +519,30 @@ def _render_ssml(body: str, settings: VoiceSettings) -> str:
     Возвращает:
         Строку ssml целиком, вместе с корневым тегом.
     """
+    rate = _rate_attribute(rate = settings.rate)
+
     return (
         "<speak>"
-        f'<prosody rate="{settings.rate}" pitch="{settings.pitch}">{body}</prosody>'
+        f'<prosody rate="{rate}" pitch="{settings.pitch}">{body}</prosody>'
         "</speak>"
     )
+
+
+def _rate_attribute(rate: str) -> str:
+    """
+    Переводит метку темпа в значение атрибута rate.
+
+        rate: метка темпа из настроек голоса.
+
+    Возвращает:
+        Темп процентами для меток таблицы, саму метку для остальных: их silero
+        разберёт по своей таблице.
+    """
+    percent = _RATE_PERCENTS.get(rate)
+    if percent is None:
+        return rate
+
+    return f"{percent}%"
 
 
 def _resolve_device(torch: Any, device: str) -> str:
