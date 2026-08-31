@@ -1,14 +1,19 @@
 """
-Тесты рестарта прогона со снимка. Модели не запускаются.
+Тесты рестарта прогона со снимка. Модели не запускаются, инструмент поддельный.
 """
 
-from unittest.mock import patch
-
 from langchain_core.messages import AIMessage, HumanMessage
+from langchain_core.tools import tool
 from langgraph.checkpoint.memory import InMemorySaver
 
-from assistant.graph import build_graph
+from assistant.graph import CALL_COMPLETED, NodeLlms, build_graph
 from assistant.graph.state import Answer, ResearchNotes, ResearchState, Section
+
+
+@tool(response_format = "content_and_artifact")
+def search_web(query: str) -> tuple[str, str]:
+    """Ищет страницы в интернете по запросу. Возвращает заготовленную выдачу."""
+    return "выдача", CALL_COMPLETED
 
 
 class FakeStructured:
@@ -101,6 +106,28 @@ def build_start_state() -> ResearchState:
     }
 
 
+def build_fake_graph(saver: InMemorySaver, agent_replies: list[AIMessage]):
+    """
+    Собирает граф на поддельных клиентах и поддельном инструменте.
+
+    Аргументы:
+        saver: хранилище снимков.
+        agent_replies: ответы, которые узел agent отдаст по порядку.
+
+    Возвращает:
+        Скомпилированный граф.
+    """
+    return build_graph(
+        checkpointer = saver,
+        llms = NodeLlms(
+            agent = FakeLLM(replies = agent_replies),
+            collect = FakeLLM(replies = []),
+            compose = FakeLLM(replies = []),
+        ),
+        tools = [search_web],
+    )
+
+
 def run_once(saver: InMemorySaver, config: dict) -> dict:
     """
     Прогоняет граф целиком на поддельных клиентах.
@@ -120,11 +147,8 @@ def run_once(saver: InMemorySaver, config: dict) -> dict:
         AIMessage(content = "материала достаточно"),
     ]
 
-    with patch("assistant.graph.nodes.build_agent_llm", lambda: FakeLLM(replies = replies)), \
-         patch("assistant.graph.nodes.build_collect_llm", lambda: FakeLLM(replies = [])), \
-         patch("assistant.graph.nodes.build_compose_llm", lambda: FakeLLM(replies = [])), \
-         patch("assistant.graph.tools.search_web.func", lambda query: ("выдача", "выполнен")):
-        return build_graph(checkpointer = saver).invoke(build_start_state(), config = config)
+    graph = build_fake_graph(saver = saver, agent_replies = replies)
+    return graph.invoke(build_start_state(), config = config)
 
 
 def test_history_holds_entry_into_every_node() -> None:
@@ -135,7 +159,7 @@ def test_history_holds_entry_into_every_node() -> None:
     config = {"configurable": {"thread_id": "прогон"}}
     run_once(saver = saver, config = config)
 
-    graph = build_graph(checkpointer = saver)
+    graph = build_fake_graph(saver = saver, agent_replies = [])
     entries = {node for snapshot in graph.get_state_history(config) for node in snapshot.next}
 
     assert {"agent", "tools", "collect", "compose"} <= entries
@@ -149,14 +173,12 @@ def test_resume_skips_agent() -> None:
     config = {"configurable": {"thread_id": "прогон"}}
     run_once(saver = saver, config = config)
 
-    graph = build_graph(checkpointer = saver)
+    # Пустой список ответов: заход в agent уронил бы тест исключением.
+    graph = build_fake_graph(saver = saver, agent_replies = [])
     target = next(snapshot for snapshot in graph.get_state_history(config)
                   if snapshot.next == ("compose",))
 
-    # Пустой список ответов: заход в agent уронил бы тест исключением.
-    with patch("assistant.graph.nodes.build_agent_llm", lambda: FakeLLM(replies = [])), \
-         patch("assistant.graph.nodes.build_compose_llm", lambda: FakeLLM(replies = [])):
-        final_state = graph.invoke(None, config = target.config)
+    final_state = graph.invoke(None, config = target.config)
 
     assert final_state["answer"].title == "заголовок"
     assert len(final_state["notes"].facts) == 2
@@ -170,14 +192,13 @@ def test_resume_replaces_narrator() -> None:
     config = {"configurable": {"thread_id": "прогон"}}
     run_once(saver = saver, config = config)
 
-    graph = build_graph(checkpointer = saver)
+    # Пустой список ответов: заход в agent уронил бы тест исключением.
+    graph = build_fake_graph(saver = saver, agent_replies = [])
     target = next(snapshot for snapshot in graph.get_state_history(config)
                   if snapshot.next == ("compose",))
 
     resume_from = graph.update_state(target.config, values = {"narrator_prompt": "другой рассказчик"})
 
-    with patch("assistant.graph.nodes.build_agent_llm", lambda: FakeLLM(replies = [])), \
-         patch("assistant.graph.nodes.build_compose_llm", lambda: FakeLLM(replies = [])):
-        graph.invoke(None, config = resume_from)
+    graph.invoke(None, config = resume_from)
 
     assert graph.get_state(config).values["narrator_prompt"] == "другой рассказчик"

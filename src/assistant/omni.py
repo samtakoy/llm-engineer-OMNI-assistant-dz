@@ -15,9 +15,11 @@ from pathlib import Path
 from langchain_core.callbacks import BaseCallbackHandler
 from langchain_openai import ChatOpenAI
 
-from assistant.graph import Answer, ResearchNotes, describe_nodes
+from assistant.graph import Answer, ResearchNotes
 from assistant.graph_runs import (
     ResearchStep,
+    build_node_llms,
+    describe_nodes,
     find_resume_point,
     new_run_id,
     resume_research,
@@ -584,7 +586,9 @@ def run_omni_assistant_staged(
         else [f"- факты прогона `{reuse_run_id}`, сбор пропущен"]
     )
 
-    with trace_run(trace_id = trace_id, node_rows = describe_nodes(), origin_rows = origin_rows) as trace:
+    node_rows = describe_nodes(llms = build_node_llms())
+
+    with trace_run(trace_id = trace_id, node_rows = node_rows, origin_rows = origin_rows) as trace:
         trace_path = trace.path() if trace is not None else None
         callbacks: list[BaseCallbackHandler] = [trace] if trace is not None else []
 
@@ -761,7 +765,7 @@ def resume_omni_assistant_staged(
 
     with trace_run(
         trace_id = trace_id,
-        node_rows = describe_nodes(),
+        node_rows = describe_nodes(llms = build_node_llms()),
         origin_rows = origin_rows,
     ) as trace:
         trace_path = trace.path() if trace is not None else None

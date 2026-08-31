@@ -7,8 +7,14 @@ import argparse
 import sys
 from pathlib import Path
 
-from assistant.graph import Answer, ResearchNotes, describe_nodes
-from assistant.graph_runs import RESUMABLE_NODES, latest_run_id, list_runs
+from assistant.graph import Answer, ResearchNotes
+from assistant.graph_runs import (
+    RESUMABLE_NODES,
+    build_node_llms,
+    describe_nodes,
+    latest_run_id,
+    list_runs,
+)
 from assistant.observability import setup_console_output
 from assistant.omni import (
     RECORD_UNTIL_ENTER,
@@ -259,7 +265,7 @@ def main() -> None:
         return
 
     print(f"[провайдер] {LLM_PROVIDER}")
-    for line in describe_nodes():
+    for line in describe_nodes(llms = build_node_llms()):
         print(f"  {line}")
 
     if arguments.resume:

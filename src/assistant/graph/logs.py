@@ -22,11 +22,7 @@ def log_round(round_number: int) -> None:
     """
     Пишет заголовок раунда.
 
-    Аргументы:
         round_number: номер раунда, считая с единицы.
-
-    Возвращает:
-        Ничего.
     """
     logger.info(f"\n--- раунд {round_number} ---")
 
@@ -39,13 +35,9 @@ def log_budget(
     """
     Пишет остаток бюджета и причину остановки, если она наступила.
 
-    Аргументы:
         successful_calls: сколько состоявшихся вызовов у каждого инструмента.
         failed_calls: сколько вызовов провалилось всего.
         tools_left: инструменты, доступные на этом шаге.
-
-    Возвращает:
-        Ничего.
     """
     counters = ", ".join(
         f"{name} {count}/{MAX_SUCCESSFUL_CALLS_PER_TOOL}"
@@ -66,11 +58,7 @@ def log_decision(message: AIMessage) -> None:
     """
     Пишет решение модели на текущем шаге.
 
-    Аргументы:
         message: ответ модели.
-
-    Возвращает:
-        Ничего.
     """
     if message.tool_calls:
         for call in message.tool_calls:
@@ -83,11 +71,7 @@ def log_finish_reason(message: AIMessage) -> None:
     """
     Пишет причину остановки генерации, сообщённую сервером.
 
-    Аргументы:
         message: ответ модели.
-
-    Возвращает:
-        Ничего.
     """
     reason = message.response_metadata.get("finish_reason")
 
@@ -106,12 +90,8 @@ def log_blocked_call(tool_name: str, reason: str) -> None:
     """
     Пишет отказ по бюджету на один вызов инструмента.
 
-    Аргументы:
         tool_name: имя инструмента, вызов которого отклонён.
         reason: причина отказа.
-
-    Возвращает:
-        Ничего.
     """
     logger.info(f"[бюджет] вызов {tool_name} отклонён: {reason}")
 
@@ -120,11 +100,7 @@ def log_notes(notes: ResearchNotes) -> None:
     """
     Пишет объём собранной фактической опоры.
 
-    Аргументы:
         notes: фактическая опора, собранная узлом collect.
-
-    Возвращает:
-        Ничего.
     """
     logger.info(f"\n[факты] собрано {len(notes.facts)}, источников {len(notes.sources)}")
 
@@ -133,11 +109,7 @@ def log_answer(answer: Answer) -> None:
     """
     Пишет объём итогового текста.
 
-    Аргументы:
         answer: итоговый текст, собранный узлом compose.
-
-    Возвращает:
-        Ничего.
     """
     logger.info(f"[текст] разделов {len(answer.sections)}")
 
@@ -146,10 +118,6 @@ def log_narrator_style(style: str) -> None:
     """
     Пишет фразу о голосе рассказчика.
 
-    Аргументы:
         style: фраза, задающая манеру изложения.
-
-    Возвращает:
-        Ничего.
     """
     logger.info(f"[СТИЛЬ]\n {style}")

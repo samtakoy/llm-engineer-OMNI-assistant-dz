@@ -8,6 +8,7 @@
 
 from .checkpoints import open_checkpointer
 from .history import ResumePoint, find_resume_point, latest_run_id, list_runs
+from .llms import build_node_llms, describe_nodes
 from .run import (
     RESUMABLE_NODES,
     ResearchStep,
@@ -17,9 +18,12 @@ from .run import (
     resume_research_staged,
     run_research_staged,
 )
+from .wiring import build_research_graph
 
 __all__ = [
     "open_checkpointer",
+    "build_node_llms",
+    "describe_nodes",
     "run_research_staged",
     "ResearchStep",
     "new_run_id",
@@ -31,4 +35,5 @@ __all__ = [
     "list_runs",
     "latest_run_id",
     "RESUMABLE_NODES",
+    "build_research_graph",
 ]

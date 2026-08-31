@@ -16,12 +16,12 @@ from langchain_core.callbacks import BaseCallbackHandler
 from langchain_core.messages import HumanMessage, ToolMessage
 from langgraph.graph.state import CompiledStateGraph
 
-from assistant.graph.budget import MAX_TOOL_CALLS_PER_RUN
-from assistant.graph.graph import build_graph
-from assistant.graph.state import Answer, ResearchNotes, ResearchState
+from assistant.graph import RESEARCH_TOOLS, Answer, ResearchNotes, ResearchState
+from assistant.graph.budget import max_tool_calls_per_run
 from assistant.graph_runs.checkpoints import open_checkpointer
 from assistant.graph_runs.history import ResumePoint, find_resume_point
 from assistant.graph_runs.logs import log_checkpoints_off, log_resume, log_run_id
+from assistant.graph_runs.wiring import build_research_graph
 from assistant.variables import CHECKPOINT_DIR
 
 # Узлы, с которых можно продолжить прогон.
@@ -51,9 +51,10 @@ def _run_config(run_id: str, callbacks: list[BaseCallbackHandler]) -> dict:
     """
     # Запас по рекурсии: раунд стоит два шага (agent + tools), плюс финальный
     # agent и два узла вывода.
+    max_calls = max_tool_calls_per_run(tools = RESEARCH_TOOLS)
     return {
         "configurable": {"thread_id": run_id},
-        "recursion_limit": MAX_TOOL_CALLS_PER_RUN * 2 + 5,
+        "recursion_limit": max_calls * 2 + 5,
         "callbacks": callbacks,
     }
 
@@ -169,7 +170,7 @@ def run_research_staged(
     }
 
     yield from _stream_steps(
-        graph = build_graph(checkpointer = checkpointer),
+        graph = build_research_graph(checkpointer = checkpointer),
         initial_state = initial_state,
         config = _run_config(run_id = run_id, callbacks = callbacks),
     )
@@ -231,7 +232,7 @@ def resume_research_staged(
     Возвращает:
         Шаги графа по одному в порядке прохождения узлов.
     """
-    graph = build_graph(checkpointer = open_checkpointer(directory = CHECKPOINT_DIR))
+    graph = build_research_graph(checkpointer = open_checkpointer(directory = CHECKPOINT_DIR))
 
     log_resume(run_id = point.run_id, from_node = point.from_node)
 

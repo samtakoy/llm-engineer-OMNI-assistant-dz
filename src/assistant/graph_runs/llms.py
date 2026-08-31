@@ -2,11 +2,13 @@
 Сборка клиентов моделей по узлам графа.
 
 Каждый узел получает клиент по своей роли NodeRole. Параметры сэмплирования
-для роли хранит модуль profiles.
+для роли хранит модуль profiles. Сам граф клиентов не создаёт: он принимает
+готовый набор NodeLlms.
 """
 
 from langchain_openai import ChatOpenAI
 
+from assistant.graph.contracts import NodeLlms
 from assistant.integrations.llm.client import build_llm, describe_llm
 from assistant.integrations.llm.profiles import NodeRole
 from assistant.variables import ENABLE_ALL_REASONING
@@ -57,15 +59,32 @@ def build_compose_llm() -> ChatOpenAI:
     )
 
 
-def describe_nodes() -> list[str]:
+def build_node_llms() -> NodeLlms:
+    """
+    Собирает клиенты всех узлов графа.
+
+    Возвращает:
+        Набор клиентов, который принимает build_graph.
+    """
+    return NodeLlms(
+        agent = build_agent_llm(),
+        collect = build_collect_llm(),
+        compose = build_compose_llm(),
+    )
+
+
+def describe_nodes(llms: NodeLlms) -> list[str]:
     """
     Описывает параметры моделей по узлам.
+
+    Аргументы:
+        llms: клиенты узлов графа.
 
     Возвращает:
         Список строк для вывода в командной строке.
     """
     return [
-        f"agent:   {describe_llm(llm = build_agent_llm())}",
-        f"collect: {describe_llm(llm = build_collect_llm())}",
-        f"compose: {describe_llm(llm = build_compose_llm())}",
+        f"agent:   {describe_llm(llm = llms.agent)}",
+        f"collect: {describe_llm(llm = llms.collect)}",
+        f"compose: {describe_llm(llm = llms.compose)}",
     ]
