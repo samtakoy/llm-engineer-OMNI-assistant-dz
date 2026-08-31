@@ -16,7 +16,14 @@ from ..omni import OmniOutcome, empty_outcome, run_omni_assistant_staged
 from ..persona import PersonaMode
 from ..timing import Stopwatch
 from ..variables import PERSONA_MODE, SPOKEN_PATH
-from .render import render_answer, render_notes, render_persona, render_progress, render_timing
+from .render import (
+    render_answer,
+    render_notes,
+    render_persona,
+    render_progress,
+    render_timing,
+    stage_lines,
+)
 
 # Сколько проигрывателей держать наготове. Куски ответа - вступление, разделы и
 # завершение, - и их число заранее неизвестно, поэтому проигрыватели создаются
@@ -222,7 +229,7 @@ def run_from_ui(
         is_speech_on = is_speech_on,
         is_markup_on = is_markup_on,
     ):
-        progress_lines.append(stage.name)
+        progress_lines.extend(stage_lines(name = stage.name, step = stage.step))
         yield interface_fields(
             status = render_status(stage_name = stage.name, outcome = stage.outcome),
             outcome = stage.outcome,

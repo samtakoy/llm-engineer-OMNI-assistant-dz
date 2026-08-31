@@ -4,7 +4,7 @@
 Модуль не знает про gradio: наружу уходят готовые строки.
 """
 
-from ..graph import Answer, ResearchNotes
+from ..graph import Answer, ResearchNotes, ResearchStep
 from ..persona import Persona
 from ..timing import Stopwatch
 
@@ -90,6 +90,53 @@ def render_notes(notes: ResearchNotes | None) -> str:
     lines.extend(f"- {url}" for url in notes.sources)
 
     return "\n".join(lines)
+
+
+def call_argument(arguments: dict) -> str:
+    """
+    Сжимает аргументы вызова инструмента до одной строки.
+
+    Имена аргументов не перечисляются: у каждого инструмента они свои, а в
+    строке хода прогона важно само значение - запрос или адрес.
+
+    Аргументы:
+        arguments: аргументы вызова.
+
+    Возвращает:
+        Значения аргументов через запятую. Пустую строку, если аргументов нет.
+    """
+    return ", ".join(str(value) for value in arguments.values())
+
+
+def stage_lines(name: str, step: ResearchStep | None) -> list[str]:
+    """
+    Превращает этап прогона в строки хода прогона.
+
+    Аргументы:
+        name: имя завершённого этапа.
+        step: шаг графа, если этап - шаг ресёрча; иначе None.
+
+    Возвращает:
+        Для шага ресёрча - по строке на каждый объявленный вызов инструмента и на
+        каждый его исход, плюс строку про собранные факты и про написанный текст;
+        шаг без вызовов и без итога строк не даёт. Для остальных этапов - одну
+        строку с именем этапа.
+    """
+    if step is None:
+        return [name]
+
+    lines = [
+        f"вызов {tool_name}: {call_argument(arguments = arguments)}"
+        for tool_name, arguments in step.tool_calls
+    ]
+    lines.extend(f"{tool_name} - {result}" for tool_name, result in step.tool_results)
+
+    if step.notes is not None:
+        lines.append("факты собраны")
+    if step.answer is not None:
+        lines.append("текст написан")
+
+    return lines
 
 
 def render_progress(lines: list[str]) -> str:
