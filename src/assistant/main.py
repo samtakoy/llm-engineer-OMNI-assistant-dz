@@ -12,6 +12,7 @@ from assistant.graph import (
     Answer,
     ResearchNotes,
     describe_nodes,
+    latest_run_id,
     list_runs,
 )
 from assistant.observability import setup_console_output
@@ -23,6 +24,9 @@ from assistant.omni import (
 )
 from assistant.persona import PersonaMode
 from assistant.variables import LLM_PROVIDER, PERSONA_MODE
+
+# Значение --reuse-facts, при котором берётся свежий записанный прогон.
+LATEST_RUN = ""
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -80,6 +84,13 @@ def build_parser() -> argparse.ArgumentParser:
         help = "узел, с которого продолжить прогон; только вместе с --resume",
     )
     parser.add_argument(
+        "--reuse-facts",
+        nargs = "?",
+        const = LATEST_RUN,
+        metavar = "ПРОГОН",
+        help = "взять факты записанного прогона и сразу изложить их; без значения - свежий прогон",
+    )
+    parser.add_argument(
         "--list-runs",
         action = "store_true",
         help = "показать прогоны, которые можно переиграть, и выйти",
@@ -108,6 +119,14 @@ def check_question_sources(arguments: argparse.Namespace) -> str:
     sources = [arguments.question, arguments.audio, arguments.record]
     given = [source for source in sources if source is not None]
 
+    if arguments.reuse_facts is not None:
+        if given:
+            return (
+                "--reuse-facts не сочетается с вопросом, --audio и --record: "
+                "вопрос берётся из записанного прогона."
+            )
+        return ""
+
     if not given:
         return "Нужен вопрос: текстом, файлом --audio или записью --record."
     if len(given) > 1:
@@ -130,10 +149,38 @@ def check_resume_arguments(arguments: argparse.Namespace) -> str:
     if any(source is not None for source in given):
         return "--resume не сочетается с вопросом, --audio, --record и --image."
 
+    if arguments.reuse_facts is not None:
+        return "--resume не сочетается с --reuse-facts: это разные способы переиграть прогон."
+
     if arguments.from_node is None:
         return "К --resume нужен --from: с какого узла продолжать."
 
     return ""
+
+
+def resolve_reuse_run_id(reuse_facts: str | None) -> tuple[str | None, str]:
+    """
+    Выбирает прогон, факты которого берутся готовыми.
+
+    Аргументы:
+        reuse_facts: значение --reuse-facts; LATEST_RUN - свежий записанный
+            прогон, None - факты собираются заново.
+
+    Возвращает:
+        Пару «идентификатор прогона, причина отказа». Идентификатор равен None,
+        если факты собираются заново.
+    """
+    if reuse_facts is None:
+        return None, ""
+
+    if reuse_facts != LATEST_RUN:
+        return reuse_facts, ""
+
+    run_id = latest_run_id()
+    if not run_id:
+        return None, "Записанных прогонов нет: факты брать неоткуда."
+
+    return run_id, ""
 
 
 def print_runs() -> None:
@@ -244,6 +291,11 @@ def main() -> None:
             print("Рассказчик задаётся одним способом: --image или --narrator.")
             sys.exit(1)
 
+        reuse_run_id, refusal = resolve_reuse_run_id(reuse_facts = arguments.reuse_facts)
+        if refusal:
+            print(refusal)
+            sys.exit(1)
+
         outcome = run_omni_assistant(
             image_path = Path(arguments.image) if arguments.image else None,
             narrator_style = arguments.narrator,
@@ -251,6 +303,7 @@ def main() -> None:
             question_text = arguments.question,
             audio_path = Path(arguments.audio) if arguments.audio else None,
             record_seconds = arguments.record,
+            reuse_run_id = reuse_run_id,
             is_speech_on = arguments.speak,
             is_markup_on = arguments.markup,
         )

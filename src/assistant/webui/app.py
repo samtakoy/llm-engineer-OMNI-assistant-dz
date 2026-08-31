@@ -11,6 +11,7 @@ from pathlib import Path
 
 import gradio as gr
 
+from ..graph import latest_run_id
 from ..observability import setup_console_output
 from ..omni import OmniOutcome, empty_outcome, run_omni_assistant_staged
 from ..persona import PersonaMode
@@ -184,6 +185,7 @@ def run_from_ui(
     question_audio_path: str | None,
     narrator_style: str,
     persona_mode_value: str,
+    is_reuse_facts: bool,
     is_speech_on: bool,
     is_markup_on: bool,
 ) -> Iterator[tuple]:
@@ -196,17 +198,24 @@ def run_from_ui(
         question_audio_path: файл с записью вопроса; None - записи нет.
         narrator_style: фраза про рассказчика, возможно пустая.
         persona_mode_value: способ сборки рассказчика по фотографии.
+        is_reuse_facts: взять факты свежего записанного прогона, сбор пропустить.
         is_speech_on: озвучивать готовый текст.
         is_markup_on: размечать текст перед озвучкой.
 
     Возвращает:
         Значения полей интерфейса по одному набору на этап прогона.
     """
+    reuse_run_id = latest_run_id() if is_reuse_facts else ""
+    if is_reuse_facts and not reuse_run_id:
+        yield blank_fields(status = "**записанных прогонов нет:** факты брать неоткуда")
+        return
+
     question, audio_path = resolve_question_source(
         question_text = question_text,
         question_audio_path = question_audio_path,
     )
-    if question is None and audio_path is None:
+    # С готовыми фактами вопрос берётся из записанного прогона: они собраны под него.
+    if not is_reuse_facts and question is None and audio_path is None:
         yield blank_fields(status = "**нужен вопрос:** текстом или записью")
         return
 
@@ -226,6 +235,7 @@ def run_from_ui(
         question_text = question,
         audio_path = audio_path,
         record_seconds = None,
+        reuse_run_id = reuse_run_id or None,
         is_speech_on = is_speech_on,
         is_markup_on = is_markup_on,
     ):
@@ -269,6 +279,10 @@ def build_app() -> gr.Blocks:
                         label = "Рассказчик фразой; перебивает фотографию",
                         lines = 2,
                     )
+                    reuse_facts_input = gr.Checkbox(
+                        label = "Взять факты последнего прогона; вопрос берётся оттуда же",
+                        value = False,
+                    )
                     speech_input = gr.Checkbox(label = "Озвучивать текст", value = True)
                     markup_input = gr.Checkbox(label = "Размечать текст перед озвучкой", value = True)
 
@@ -307,6 +321,7 @@ def build_app() -> gr.Blocks:
                 question_audio_input,
                 narrator_input,
                 persona_mode_input,
+                reuse_facts_input,
                 speech_input,
                 markup_input,
             ],

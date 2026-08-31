@@ -2,8 +2,9 @@
 Сборка всех этапов: вопрос, фотография персонажа, экскурсия его голосом.
 
 Вопрос берётся текстом, из файла с записью или с микрофона. Записанный прогон
-продолжается с указанного узла теми же этапами. Длительности этапов копит
-Stopwatch и возвращает рядом с ответом.
+продолжается с указанного узла теми же этапами. Факты записанного прогона можно
+взять готовыми и пересобрать по ним только рассказчика и текст. Длительности
+этапов копит Stopwatch и возвращает рядом с ответом.
 """
 
 from collections.abc import Iterator
@@ -19,8 +20,10 @@ from assistant.graph import (
     ResearchNotes,
     ResearchStep,
     describe_nodes,
+    find_resume_point,
     new_run_id,
     resume_research,
+    resume_research_staged,
     run_research_staged,
 )
 from assistant.integrations.listening import SILENCE_LEVEL, SpeechRecognizer, record
@@ -538,6 +541,7 @@ def run_omni_assistant_staged(
     question_text: str | None,
     audio_path: Path | None,
     record_seconds: float | None,
+    reuse_run_id: str | None,
     is_speech_on: bool,
     is_markup_on: bool,
 ) -> Iterator[OmniStage]:
@@ -549,6 +553,9 @@ def run_omni_assistant_staged(
     того и другого текст пишется обычным рассказчиком. Озвучка идёт кусками:
     вступление, разделы, завершение.
 
+    С переиспользованием фактов сбор пропускается: вопрос и опора берутся из
+    записанного прогона, а рассказчик собирается заново по фотографии или фразе.
+
     Аргументы:
         image_path: файл с фотографией персонажа; None - без фотографии.
         narrator_style: готовая фраза про голос рассказчика; None - без неё.
@@ -557,6 +564,8 @@ def run_omni_assistant_staged(
         audio_path: файл с записью вопроса; None - вопрос задан иначе.
         record_seconds: сколько секунд писать с микрофона; RECORD_UNTIL_ENTER и
             меньше - до нажатия Enter; None - вопрос задан иначе.
+        reuse_run_id: прогон, факты которого берутся готовыми; None - собирать
+            факты заново.
         is_speech_on: озвучивать готовый текст.
         is_markup_on: размечать текст перед озвучкой.
 
@@ -567,20 +576,37 @@ def run_omni_assistant_staged(
     timing = Stopwatch()
     run_id = new_run_id()
 
-    with trace_run(trace_id = run_id, node_rows = describe_nodes(), origin_rows = []) as trace:
+    # У прогона на готовых фактах журнал свой: имя исходного прогона плюс время
+    # рестарта. Исходный файл остаётся нетронутым, а происхождение видно и в
+    # имени, и в шапке.
+    trace_id = run_id if reuse_run_id is None else f"{reuse_run_id}+{run_id}"
+    origin_rows = (
+        []
+        if reuse_run_id is None
+        else [f"- факты прогона `{reuse_run_id}`, сбор пропущен"]
+    )
+
+    with trace_run(trace_id = trace_id, node_rows = describe_nodes(), origin_rows = origin_rows) as trace:
         trace_path = trace.path() if trace is not None else None
         callbacks: list[BaseCallbackHandler] = [trace] if trace is not None else []
 
         outcome = empty_outcome(trace_path = trace_path, timing = timing)
 
-        question, error = resolve_question(
-            question_text = question_text,
-            audio_path = audio_path,
-            record_seconds = record_seconds,
-            timing = timing,
-        )
-        if not error and not question.strip():
-            error = "вопрос пустой"
+        if reuse_run_id is None:
+            resume_point = None
+            question, error = resolve_question(
+                question_text = question_text,
+                audio_path = audio_path,
+                record_seconds = record_seconds,
+                timing = timing,
+            )
+            if not error and not question.strip():
+                error = "вопрос пустой"
+        else:
+            resume_point = find_resume_point(run_id = reuse_run_id, from_node = "compose")
+            question = resume_point.question
+            error = resume_point.error
+
         if error:
             yield failed_stage(outcome = replace(outcome, question = question), error = error)
             return
@@ -589,7 +615,8 @@ def run_omni_assistant_staged(
         yield OmniStage(name = "вопрос", step = None, outcome = outcome)
 
         persona: Persona | None = None
-        narrator_prompt = ""
+        # Без нового рассказчика прогон на готовых фактах идёт с записанным.
+        narrator_prompt = "" if resume_point is None else resume_point.narrator_prompt
         look = ""
 
         if narrator_style is not None:
@@ -615,13 +642,23 @@ def run_omni_assistant_staged(
             )
             yield OmniStage(name = "рассказчик", step = None, outcome = outcome)
 
-        with timing.stage(name = "ресёрч"):
-            for step in run_research_staged(
+        if resume_point is None:
+            research_steps = run_research_staged(
                 question = question,
                 narrator_prompt = narrator_prompt or None,
                 run_id = run_id,
                 callbacks = callbacks,
-            ):
+            )
+        else:
+            outcome = replace(outcome, notes = resume_point.notes)
+            research_steps = resume_research_staged(
+                point = resume_point,
+                narrator_prompt = narrator_prompt or None,
+                callbacks = callbacks,
+            )
+
+        with timing.stage(name = "ресёрч"):
+            for step in research_steps:
                 if step.notes is not None:
                     outcome = replace(outcome, notes = step.notes)
                 if step.answer is not None:
@@ -648,6 +685,7 @@ def run_omni_assistant(
     question_text: str | None,
     audio_path: Path | None,
     record_seconds: float | None,
+    reuse_run_id: str | None,
     is_speech_on: bool,
     is_markup_on: bool,
 ) -> OmniOutcome:
@@ -664,6 +702,8 @@ def run_omni_assistant(
         audio_path: файл с записью вопроса; None - вопрос задан иначе.
         record_seconds: сколько секунд писать с микрофона; RECORD_UNTIL_ENTER и
             меньше - до нажатия Enter; None - вопрос задан иначе.
+        reuse_run_id: прогон, факты которого берутся готовыми; None - собирать
+            факты заново.
         is_speech_on: озвучивать готовый текст.
         is_markup_on: размечать текст перед озвучкой.
 
@@ -679,6 +719,7 @@ def run_omni_assistant(
         question_text = question_text,
         audio_path = audio_path,
         record_seconds = record_seconds,
+        reuse_run_id = reuse_run_id,
         is_speech_on = is_speech_on,
         is_markup_on = is_markup_on,
     ):

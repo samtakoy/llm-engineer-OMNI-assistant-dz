@@ -156,6 +156,26 @@ def _step_of(node: str, update: dict) -> ResearchStep:
     )
 
 
+def _stream_steps(graph, initial_state: ResearchState | None, config: dict) -> Iterator[ResearchStep]:
+    """
+    Прогоняет граф и отдаёт шаг после каждого узла.
+
+    Аргументы:
+        graph: скомпилированный граф.
+        initial_state: начальное состояние; None - продолжение с записанного снимка.
+        config: конфиг вызова графа.
+
+    Возвращает:
+        Шаги графа по одному в порядке прохождения узлов.
+    """
+    for update in graph.stream(initial_state, config = config, stream_mode = "updates"):
+        # Под ключом лежит обновление состояния от узла, но служебные ключи
+        # langgraph несут не словарь, и разбирать их нечего.
+        for node, state_update in update.items():
+            if isinstance(state_update, dict):
+                yield _step_of(node = node, update = state_update)
+
+
 def run_research_staged(
     question: str,
     narrator_prompt: str | None,
@@ -189,18 +209,11 @@ def run_research_staged(
         "answer": None,
     }
 
-    stream = build_graph(checkpointer = checkpointer).stream(
-        initial_state,
+    yield from _stream_steps(
+        graph = build_graph(checkpointer = checkpointer),
+        initial_state = initial_state,
         config = _run_config(run_id = run_id, callbacks = callbacks),
-        stream_mode = "updates",
     )
-
-    for update in stream:
-        # Под ключом лежит обновление состояния от узла, но служебные ключи
-        # langgraph несут не словарь, и разбирать их нечего.
-        for node, state_update in update.items():
-            if isinstance(state_update, dict):
-                yield _step_of(node = node, update = state_update)
 
 
 @dataclass(frozen = True)
@@ -243,6 +256,135 @@ def failed_resume(error: str) -> ResumedRun:
     )
 
 
+@dataclass(frozen = True)
+class ResumePoint:
+    """
+    Точка входа в записанный прогон.
+
+    Атрибуты:
+        run_id: идентификатор прогона.
+        from_node: узел, с которого пойдёт продолжение.
+        config: конфиг снимка перед этим узлом; пустой при неудаче.
+        question: вопрос пользователя из снимка; пустая строка при неудаче.
+        narrator_prompt: блок про рассказчика из снимка; пустая строка, если
+            рассказчик не задан, и при неудаче.
+        notes: фактическая опора из снимка; None, если её там ещё нет.
+        error: причина неудачи; пустая строка при успехе.
+    """
+
+    run_id: str
+    from_node: str
+    config: dict
+    question: str
+    narrator_prompt: str
+    notes: ResearchNotes | None
+    error: str
+
+
+def _failed_point(run_id: str, from_node: str, error: str) -> ResumePoint:
+    """
+    Собирает точку входа, которую не удалось найти.
+
+    Аргументы:
+        run_id: идентификатор прогона.
+        from_node: узел, с которого продолжали.
+        error: причина неудачи.
+
+    Возвращает:
+        Точку входа без конфига, вопроса, рассказчика и опоры.
+    """
+    return ResumePoint(
+        run_id = run_id,
+        from_node = from_node,
+        config = {},
+        question = "",
+        narrator_prompt = "",
+        notes = None,
+        error = error,
+    )
+
+
+def find_resume_point(run_id: str, from_node: str) -> ResumePoint:
+    """
+    Ищет снимок, с которого записанный прогон продолжится указанным узлом.
+
+    Аргументы:
+        run_id: идентификатор прогона.
+        from_node: узел, с которого продолжать.
+
+    Возвращает:
+        Точку входа с вопросом, рассказчиком и опорой из снимка либо причину
+        неудачи.
+    """
+    checkpointer = open_checkpointer(directory = CHECKPOINT_DIR)
+    if checkpointer is None:
+        return _failed_point(
+            run_id = run_id,
+            from_node = from_node,
+            error = "хранилище снимков выключено",
+        )
+
+    graph = build_graph(checkpointer = checkpointer)
+    snapshots = list(graph.get_state_history({"configurable": {"thread_id": run_id}}))
+    if not snapshots:
+        return _failed_point(
+            run_id = run_id,
+            from_node = from_node,
+            error = f"снимков прогона {run_id} нет",
+        )
+
+    target = next((snapshot for snapshot in snapshots if snapshot.next == (from_node,)), None)
+    if target is None:
+        available = ", ".join(sorted({node for snapshot in snapshots for node in snapshot.next}))
+        return _failed_point(
+            run_id = run_id,
+            from_node = from_node,
+            error = f"в прогоне {run_id} нет входа в узел {from_node}; есть: {available}",
+        )
+
+    return ResumePoint(
+        run_id = run_id,
+        from_node = from_node,
+        config = target.config,
+        question = str(target.values.get("question", "")),
+        narrator_prompt = target.values.get("narrator_prompt") or "",
+        notes = target.values.get("notes"),
+        error = "",
+    )
+
+
+def resume_research_staged(
+    point: ResumePoint,
+    narrator_prompt: str | None,
+    callbacks: list[BaseCallbackHandler],
+) -> Iterator[ResearchStep]:
+    """
+    Продолжает записанный прогон с найденной точки, отдавая шаг после каждого узла.
+
+    Аргументы:
+        point: точка входа, найденная find_resume_point.
+        narrator_prompt: новый блок про рассказчика; None - взять из снимка.
+        callbacks: слушатели прогона.
+
+    Возвращает:
+        Шаги графа по одному в порядке прохождения узлов.
+    """
+    graph = build_graph(checkpointer = open_checkpointer(directory = CHECKPOINT_DIR))
+
+    log_resume(run_id = point.run_id, from_node = point.from_node)
+
+    resume_from = point.config
+    if narrator_prompt is not None:
+        resume_from = graph.update_state(resume_from, values = {"narrator_prompt": narrator_prompt})
+
+    # Слияние поузловое: в configurable снимка лежит checkpoint_id, без него
+    # прогон пошёл бы с последнего состояния, а не с выбранного.
+    config = _run_config(run_id = point.run_id, callbacks = callbacks)
+    config["configurable"] = {**config["configurable"], **resume_from["configurable"]}
+
+    yield from _stream_steps(graph = graph, initial_state = None, config = config)
+
+
 def resume_research(
     run_id: str,
     from_node: str,
@@ -252,6 +394,8 @@ def resume_research(
     """
     Продолжает записанный прогон с указанного узла.
 
+    Промежуточные шаги не нужны: возвращается только итог.
+
     Аргументы:
         run_id: идентификатор прогона.
         from_node: узел, с которого продолжать.
@@ -260,42 +404,30 @@ def resume_research(
 
     Возвращает:
         Исход продолжения: итоговый текст с опорой, вопрос и рассказчик из
-        снимка либо причина неудачи.
+        снимка либо причину неудачи.
     """
-    checkpointer = open_checkpointer(directory = CHECKPOINT_DIR)
-    if checkpointer is None:
-        return failed_resume(error = "хранилище снимков выключено")
+    point = find_resume_point(run_id = run_id, from_node = from_node)
+    if point.error:
+        return failed_resume(error = point.error)
 
-    graph = build_graph(checkpointer = checkpointer)
-    snapshots = list(graph.get_state_history({"configurable": {"thread_id": run_id}}))
-    if not snapshots:
-        return failed_resume(error = f"снимков прогона {run_id} нет")
+    notes = point.notes
+    answer = None
 
-    target = next((snapshot for snapshot in snapshots if snapshot.next == (from_node,)), None)
-    if target is None:
-        available = ", ".join(sorted({node for snapshot in snapshots for node in snapshot.next}))
-        return failed_resume(
-            error = f"в прогоне {run_id} нет входа в узел {from_node}; есть: {available}"
-        )
-
-    log_resume(run_id = run_id, from_node = from_node)
-
-    resume_from = target.config
-    if narrator_prompt is not None:
-        resume_from = graph.update_state(resume_from, values = {"narrator_prompt": narrator_prompt})
-
-    # Слияние поузловое: в configurable снимка лежит checkpoint_id, без него
-    # прогон пошёл бы с последнего состояния, а не с выбранного.
-    config = _run_config(run_id = run_id, callbacks = callbacks)
-    config["configurable"] = {**config["configurable"], **resume_from["configurable"]}
-
-    final_state = graph.invoke(None, config = config)
+    for step in resume_research_staged(
+        point = point,
+        narrator_prompt = narrator_prompt,
+        callbacks = callbacks,
+    ):
+        if step.notes is not None:
+            notes = step.notes
+        if step.answer is not None:
+            answer = step.answer
 
     return ResumedRun(
-        answer = final_state["answer"],
-        notes = final_state["notes"],
-        question = final_state["question"],
-        narrator_prompt = final_state["narrator_prompt"] or "",
+        answer = answer,
+        notes = notes,
+        question = point.question,
+        narrator_prompt = narrator_prompt or point.narrator_prompt,
         error = "",
     )
 
@@ -321,3 +453,14 @@ def list_runs() -> list[tuple[str, str]]:
         questions[thread_id] = str(question)
 
     return sorted(questions.items(), reverse = True)
+
+
+def latest_run_id() -> str:
+    """
+    Отдаёт идентификатор свежего записанного прогона.
+
+    Возвращает:
+        Идентификатор прогона; пустую строку, если записанных прогонов нет.
+    """
+    runs = list_runs()
+    return runs[0][0] if runs else ""
