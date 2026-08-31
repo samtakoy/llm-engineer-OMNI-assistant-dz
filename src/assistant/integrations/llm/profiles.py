@@ -249,6 +249,20 @@ PROFILES: dict[str, SamplingProfile] = {
         stop = ("<|user|>", "<|observation|>"),
         note = "model.yaml lmstudio-community; стоп-слова обязательны",
     ),
+    "qwen3.5-4b": SamplingProfile(
+        temperature = 1.0,
+        top_p = 0.95,
+        top_k = 20,
+        presence_penalty = 1.5,
+        note = "параметры карточки модели на ollama",
+    ),
+    "qwen3.5-9b": SamplingProfile(
+        temperature = 1.0,
+        top_p = 0.95,
+        top_k = 20,
+        presence_penalty = 1.5,
+        note = "параметры карточки модели на ollama",
+    ),
     "qwen3.6-35b-a3b": SamplingProfile(
         temperature = 0.7,
         top_p = 0.80,
