@@ -203,6 +203,19 @@ def log_markup_skipped(index: int, reason: str) -> None:
     logger.info(f"[разметка] кусок {index} без разметки: {reason}")
 
 
+def log_document(path: Path) -> None:
+    """
+    Пишет готовый файл с markdown прогона.
+
+    Аргументы:
+        path: файл с текстом.
+
+    Возвращает:
+        Ничего.
+    """
+    logger.info(f"[файл] {path}")
+
+
 def log_spoken(index: int, path: Path, seconds: float) -> None:
     """
     Пишет готовый файл с озвучкой куска.

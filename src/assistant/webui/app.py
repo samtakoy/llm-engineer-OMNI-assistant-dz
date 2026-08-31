@@ -262,7 +262,7 @@ def build_app() -> gr.Blocks:
     setup_console_output()
 
     with gr.Blocks(title = "Омни-ассистент") as app:
-        gr.Markdown("# Экскурсия голосом персонажа с фотографии")
+        gr.Markdown("# Обработка поискового запроса голосом персонажа с фотографии")
 
         with gr.Row():
             with gr.Column():

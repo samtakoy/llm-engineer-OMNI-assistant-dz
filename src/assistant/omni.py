@@ -15,6 +15,7 @@ from pathlib import Path
 from langchain_core.callbacks import BaseCallbackHandler
 from langchain_openai import ChatOpenAI
 
+from assistant.documents import write_run_documents
 from assistant.graph import Answer, ResearchNotes
 from assistant.graph_runs import (
     ResearchStep,
@@ -35,6 +36,7 @@ from assistant.integrations.speaking import (
     VoiceSettings,
 )
 from assistant.logs import (
+    log_document,
     log_look,
     log_markup,
     log_markup_skipped,
@@ -404,6 +406,7 @@ def speak_answer_staged(
     synthesizer: SpeechSynthesizer,
     llm: ChatOpenAI,
     is_markup_on: bool,
+    stamp: str,
     timing: Stopwatch,
     callbacks: list[BaseCallbackHandler],
 ) -> Iterator[tuple[str, Path | None]]:
@@ -423,6 +426,7 @@ def speak_answer_staged(
         synthesizer: синтезатор речи.
         llm: клиент текстовой модели для разметки.
         is_markup_on: просить модель разметить текст перед озвучкой.
+        stamp: штамп времени прогона, общий с markdown прогона.
         timing: копилка замеров.
         callbacks: слушатели прогона; журнал заводит вызывающий.
 
@@ -430,8 +434,6 @@ def speak_answer_staged(
         Пары «событие, файл с озвучкой» по одной, в порядке произнесения. Разметка
         объявляется до вызова модели и файла не несёт. Неудачные куски пропускаются.
     """
-    stamp = datetime.now().strftime("%Y-%m-%dT%H-%M-%S")
-
     for index, piece in enumerate(split_into_pieces(answer = answer), start = 1):
         spoken_text = piece.text
 
@@ -519,7 +521,11 @@ def finish_run_staged(
     callbacks: list[BaseCallbackHandler],
 ) -> Iterator[OmniStage]:
     """
-    Озвучивает готовый текст и отдаёт снимок прогона после каждого события озвучки.
+    Пишет markdown прогона, озвучивает готовый текст и отдаёт снимок прогона
+    после каждого события озвучки.
+
+    Markdown ложится рядом с озвучкой одним с ней штампом времени и пишется
+    независимо от озвучки.
 
     Аргументы:
         outcome: исход прогона с готовым текстом и фактической опорой.
@@ -531,10 +537,24 @@ def finish_run_staged(
         Снимки прогона по одному: по снимку на каждое событие озвучки и последний
         снимок с полным исходом.
     """
+    stamp = datetime.now().strftime("%Y-%m-%dT%H-%M-%S")
+
+    for document_path in write_run_documents(
+        question = outcome.question,
+        answer = outcome.answer,
+        look = outcome.look,
+        persona = outcome.persona,
+        narrator_prompt = outcome.narrator_prompt,
+        directory = SPOKEN_PATH,
+        stamp = stamp,
+    ):
+        log_document(path = document_path)
+
     if is_speech_on:
         for stage in speak_outcome_staged(
             outcome = outcome,
             is_markup_on = is_markup_on,
+            stamp = stamp,
             callbacks = callbacks,
         ):
             outcome = stage.outcome
@@ -859,6 +879,7 @@ def resume_omni_assistant(
 def speak_outcome_staged(
     outcome: OmniOutcome,
     is_markup_on: bool,
+    stamp: str,
     callbacks: list[BaseCallbackHandler],
 ) -> Iterator[OmniStage]:
     """
@@ -868,6 +889,7 @@ def speak_outcome_staged(
         outcome: исход прогона с готовым текстом; голос и файлы озвучки в нём
             заполняются по ходу.
         is_markup_on: размечать текст перед озвучкой.
+        stamp: штамп времени прогона, общий с markdown прогона.
         callbacks: слушатели прогона; журнал заводит вызывающий.
 
     Возвращает:
@@ -930,6 +952,7 @@ def speak_outcome_staged(
         synthesizer = synthesizer,
         llm = writing_llm,
         is_markup_on = is_markup_on,
+        stamp = stamp,
         timing = outcome.timing,
         callbacks = callbacks,
     ):
