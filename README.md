@@ -108,10 +108,13 @@ sudo apt install libportaudio2
 
 | Переменная | По умолчанию | Что задаёт |
 | --- | --- | --- |
-| `LLM_PROVIDER` | `local` | Провайдер: `local`, `openrouter`, `openai`, `yc`. |
+| `LLM_PROVIDER` | `local` | Провайдер: `local`, `ollama`, `openrouter`, `openai`, `yc`. |
 | `LOCAL_BASE_URL` | `http://localhost:1234/v1` | Адрес сервера lm studio. |
 | `LOCAL_API_KEY` | `lm-studio` | Ключ локального сервера, любой непустой. |
 | `LOCAL_MODEL` | `google/gemma-4-26b-a4b-qat` | Имя модели в lm studio. |
+| `OLLAMA_BASE_URL` | `http://127.0.0.1:11434/v1` | Адрес сервера ollama. |
+| `OLLAMA_API_KEY` | `ollama` | Ключ сервера ollama, любой непустой. |
+| `OLLAMA_MODEL` | `qwen3.5:4b` | Имя модели в ollama вместе с тегом. |
 | `OPENROUTER_BASE_URL` | `https://openrouter.ai/api/v1` | Адрес openrouter. |
 | `OPENROUTER_API_KEY` | пусто | Ключ openrouter. |
 | `OPENROUTER_MODEL` | `z-ai/glm-4.7-flash` | Модель openrouter. |

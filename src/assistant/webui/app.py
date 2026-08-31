@@ -340,19 +340,25 @@ def build_app() -> gr.Blocks:
     return app
 
 
-def launch_app(is_inline: bool) -> None:
+def launch_app(is_inline: bool, is_shared: bool) -> None:
     """
     Поднимает приложение.
 
     Аргументы:
         is_inline: встроить интерфейс в клетку ноутбука.
+        is_shared: выдать публичную ссылку. Нужна в colab: во встроенном фрейме
+            микрофон работает не всегда.
 
     Возвращает:
         Ничего.
     """
     # Без allowed_paths gradio не отдаёт файлы озвучки: они лежат вне каталога,
     # который он считает своим.
-    build_app().launch(inline = is_inline, allowed_paths = [str(SPOKEN_PATH)])
+    build_app().launch(
+        inline = is_inline,
+        share = is_shared,
+        allowed_paths = [str(SPOKEN_PATH)],
+    )
 
 
 def main() -> None:
@@ -362,7 +368,7 @@ def main() -> None:
     Возвращает:
         Ничего.
     """
-    launch_app(is_inline = False)
+    launch_app(is_inline = False, is_shared = False)
 
 
 if __name__ == "__main__":
