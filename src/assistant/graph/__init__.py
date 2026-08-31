@@ -2,21 +2,18 @@
 Граф ресёрчера: сбор фактов по источникам и изложение их в запрошенном виде.
 """
 
-from .graph import (
+from .graph import build_graph
+from .history import ResumePoint, find_resume_point, latest_run_id, list_runs
+from .llms import describe_nodes
+from .runs import (
     RESUMABLE_NODES,
     ResearchStep,
     ResumedRun,
-    ResumePoint,
-    build_graph,
-    find_resume_point,
-    latest_run_id,
-    list_runs,
     new_run_id,
     resume_research,
     resume_research_staged,
     run_research_staged,
 )
-from .llms import describe_nodes
 from .state import Answer, ResearchNotes, ResearchState, Section
 
 __all__ = [
