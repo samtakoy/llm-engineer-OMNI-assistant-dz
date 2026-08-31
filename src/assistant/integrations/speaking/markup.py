@@ -6,23 +6,27 @@ sanitize_markup оставляет паузы белого списка, ост�
 текст на куски по бюджету символов. Ударения знаком плюс и обычный текст проходят
 как есть.
 
-Белый список: break с time. Темп и высоту голоса разметка не задаёт: они идут
-одним значением на всю речь из настроек голоса. Абзацы и предложения
-расставляет wrap_speech_parts по пустым строкам и знакам конца предложения:
-это разбор текста, а не решение модели.
+Белый список: short_break и long_break без атрибутов, каждый разворачивается в
+break с длительностью из констант модуля. Голый break с time
+принимается тоже - модель может знать его по общим сведениям об ssml.
+
+Темп и высоту голоса разметка не задаёт: они идут одним значением на всю речь
+из настроек голоса. Абзацы и предложения расставляет wrap_speech_parts по
+пустым строкам и знакам конца предложения: это разбор текста, а не решение
+модели.
 """
 
 import re
 from xml.sax.saxutils import escape
 
 # Тег целиком: закрывающая косая черта, имя, всё остальное до угловой скобки.
-_TAG_PATTERN = re.compile(r"<\s*(/?)\s*([A-Za-z]+)([^>]*)>")
+_TAG_PATTERN = re.compile(r"<\s*(/?)\s*([A-Za-z_]+)([^>]*)>")
 
 # Пара «имя атрибута - значение» в двойных либо одинарных кавычках.
 _ATTRIBUTE_PATTERN = re.compile(r"([A-Za-z_-]+)\s*=\s*(?:\"([^\"]*)\"|'([^']*)')")
 
 # Длительность паузы: число с единицей.
-_BREAK_TIME_PATTERN = re.compile(r"^\d{1,5}(ms|s)$")
+_BREAK_TIME_PATTERN = re.compile(r"^(\d{1,5})(ms|s)$")
 
 # Граница предложения: знак конца, за ним пробел.
 _SENTENCE_BOUNDARY_PATTERN = re.compile(r"(?<=[.!?…])\s+")
@@ -40,8 +44,20 @@ _SENTENCE_SPLIT_PATTERN = re.compile(r"(?<=[.!?…])\s+(?![^<>]*>)")
 # Граница слова вне тега: запасной рез, когда предложение само длиннее бюджета.
 _WORD_SPLIT_PATTERN = re.compile(r"\s+(?![^<>]*>)")
 
-# Единственный тег белого списка; содержимого у него нет.
+# Тег паузы, который понимает silero; содержимого у него нет.
 _VOID_TAG = "break"
+
+# Теги пауз, которые ставит модель.
+_SHORT_BREAK_TAG = "short_break"
+_LONG_BREAK_TAG = "long_break"
+
+_BREAK_MILLISECONDS = {
+    _SHORT_BREAK_TAG: 400,
+    _LONG_BREAK_TAG: 900,
+}
+
+# Потолок длительности для голого break.
+_MAX_BREAK_MILLISECONDS = 900
 
 
 def sanitize_markup(text: str) -> tuple[str, bool]:
@@ -178,14 +194,23 @@ def _rendered_pause(is_closing: bool, name: str, raw_attributes: str) -> str:
     Возвращает:
         Тег паузы либо пустую строку, если тег не пауза или длительность плохая.
     """
-    if is_closing or name != _VOID_TAG:
+    if is_closing:
         return ""
 
-    time = _parse_attributes(raw = raw_attributes).get("time", "")
-    if not _BREAK_TIME_PATTERN.match(time):
+    milliseconds = _BREAK_MILLISECONDS.get(name)
+    if milliseconds is not None:
+        return f'<{_VOID_TAG} time="{milliseconds}ms"/>'
+
+    if name != _VOID_TAG:
         return ""
 
-    return f'<{_VOID_TAG} time="{time}"/>'
+    milliseconds = _break_milliseconds(
+        raw_time = _parse_attributes(raw = raw_attributes).get("time", ""),
+    )
+    if milliseconds is None:
+        return ""
+
+    return f'<{_VOID_TAG} time="{min(milliseconds, _MAX_BREAK_MILLISECONDS)}ms"/>'
 
 
 def _parse_attributes(raw: str) -> dict[str, str]:
@@ -204,3 +229,21 @@ def _parse_attributes(raw: str) -> dict[str, str]:
         attributes[match.group(1).lower()] = value.strip()
 
     return attributes
+
+
+def _break_milliseconds(raw_time: str) -> int | None:
+    """
+    Переводит длительность паузы в миллисекунды.
+
+        raw_time: значение атрибута time: число с единицей ms либо s.
+
+    Возвращает:
+        Длительность миллисекундами либо None, если значение не разобрано.
+    """
+    match = _BREAK_TIME_PATTERN.match(raw_time)
+    if match is None:
+        return None
+
+    value = int(match.group(1))
+
+    return value * 1000 if match.group(2) == "s" else value
