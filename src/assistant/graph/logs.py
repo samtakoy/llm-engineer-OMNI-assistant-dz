@@ -14,6 +14,9 @@ from assistant.graph.state import Answer, ResearchNotes
 
 logger = logging.getLogger(__name__)
 
+# Причины остановки, при которых ответ модели неполон.
+INCOMPLETE_FINISH_REASONS = ("length", "content_filter")
+
 
 def log_round(round_number: int) -> None:
     """
@@ -74,6 +77,29 @@ def log_decision(message: AIMessage) -> None:
             logger.info(f"[инструмент] {call['name']}({call['args']})")
     else:
         logger.info("[решение] инструменты больше не нужны, перехожу к сбору фактов")
+
+
+def log_finish_reason(message: AIMessage) -> None:
+    """
+    Пишет причину остановки генерации, сообщённую сервером.
+
+    Аргументы:
+        message: ответ модели.
+
+    Возвращает:
+        Ничего.
+    """
+    reason = message.response_metadata.get("finish_reason")
+
+    if reason is None:
+        logger.info("[генерация] причина остановки не сообщена")
+        return
+
+    if reason in INCOMPLETE_FINISH_REASONS:
+        logger.warning(f"[генерация] ответ оборван, finish_reason: {reason}")
+        return
+
+    logger.info(f"[генерация] finish_reason: {reason}")
 
 
 def log_blocked_call(tool_name: str, reason: str) -> None:

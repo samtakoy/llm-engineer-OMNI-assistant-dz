@@ -18,6 +18,7 @@ from assistant.graph.logs import (
     log_blocked_call,
     log_budget,
     log_decision,
+    log_finish_reason,
     log_narrator_style,
     log_notes,
     log_round,
@@ -83,6 +84,7 @@ def agent_node(state: ResearchState) -> dict:
         ]
     )
 
+    log_finish_reason(message = message)
     log_decision(message = message)
 
     return {"messages": [message]}
