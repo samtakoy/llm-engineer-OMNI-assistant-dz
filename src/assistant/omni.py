@@ -7,6 +7,7 @@
 этапов копит Stopwatch и возвращает рядом с ответом.
 """
 
+import time
 from collections.abc import Iterator
 from dataclasses import dataclass, replace
 from datetime import datetime
@@ -189,8 +190,14 @@ def transcribe_file(audio_path: Path, timing: Stopwatch) -> tuple[str, str]:
     """
     recognizer = SpeechRecognizer(config = LISTENING_CONFIG)
 
-    with timing.stage(name = "распознавание"):
-        outcome = recognizer.transcribe(audio_path = audio_path)
+    started = time.monotonic()
+    outcome = recognizer.transcribe(audio_path = audio_path)
+    spent_seconds = time.monotonic() - started
+
+    if outcome.load_seconds > 0:
+        timing.add(name = "загрузка модели речи", seconds = outcome.load_seconds)
+
+    timing.add(name = "распознавание", seconds = spent_seconds - outcome.load_seconds)
 
     if outcome.error:
         return "", f"распознать не вышло: {outcome.error}"

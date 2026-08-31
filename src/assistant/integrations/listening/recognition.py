@@ -16,6 +16,7 @@
 
 import hashlib
 import logging
+import time
 from pathlib import Path
 from typing import Any
 
@@ -73,17 +74,28 @@ class SpeechRecognizer:
                 text = "",
                 error = f"файла {audio_path} нет",
                 from_cache = False,
+                load_seconds = 0.0,
             )
 
         key = self._cache_key(audio_path = audio_path)
         if key and self._cache is not None and not self._config.bypass_cache:
             record = self._cache.read(key = key)
             if record is not None and record.get("text"):
-                return TranscriptOutcome(text = record["text"], error = "", from_cache = True)
+                return TranscriptOutcome(
+                    text = record["text"],
+                    error = "",
+                    from_cache = True,
+                    load_seconds = 0.0,
+                )
 
-        model, load_error = self._loaded_model()
+        model, load_error, load_seconds = self._loaded_model()
         if model is None:
-            return TranscriptOutcome(text = "", error = load_error, from_cache = False)
+            return TranscriptOutcome(
+                text = "",
+                error = load_error,
+                from_cache = False,
+                load_seconds = load_seconds,
+            )
 
         try:
             segments, info = model.transcribe(
@@ -103,6 +115,7 @@ class SpeechRecognizer:
                 text = "",
                 error = f"распознавание оборвалось: {type(error).__name__}",
                 from_cache = False,
+                load_seconds = load_seconds,
             )
 
         if not text:
@@ -110,6 +123,7 @@ class SpeechRecognizer:
                 text = "",
                 error = "в записи не нашлось речи",
                 from_cache = False,
+                load_seconds = load_seconds,
             )
 
         if key and self._cache is not None:
@@ -124,18 +138,24 @@ class SpeechRecognizer:
                 },
             )
 
-        return TranscriptOutcome(text = text, error = "", from_cache = False)
+        return TranscriptOutcome(
+            text = text,
+            error = "",
+            from_cache = False,
+            load_seconds = load_seconds,
+        )
 
-    def _loaded_model(self) -> tuple[Any | None, str]:
+    def _loaded_model(self) -> tuple[Any | None, str, float]:
         """
         Отдаёт загруженную модель, загружая её при первом обращении.
 
         Возвращает:
-            Пару «модель, причина неудачи». При успехе причина пустая, при
-            неудаче модель None.
+            Тройку «модель, причина неудачи, секунды загрузки». При успехе
+            причина пустая, при неудаче модель None. Секунды нулевые, если
+            модель уже была загружена.
         """
         if self._model is not None:
-            return self._model, ""
+            return self._model, "", 0.0
 
         try:
             from faster_whisper import WhisperModel
@@ -143,12 +163,13 @@ class SpeechRecognizer:
             # OSError ловится наравне с ImportError: ctranslate2 подгружает свои
             # бинарники на импорте и без них падает именно так.
             logger.warning(f"[speech] библиотека faster-whisper недоступна: {type(error).__name__}: {error}")
-            return None, "библиотека распознавания недоступна"
+            return None, "библиотека распознавания недоступна", 0.0
 
         logger.info(
             f"[speech] загрузка модели {self._config.recognition_model} "
             f"({self._config.recognition_device}, {self._config.recognition_compute_type})"
         )
+        started = time.monotonic()
         try:
             self._model = WhisperModel(
                 self._config.recognition_model,
@@ -156,10 +177,11 @@ class SpeechRecognizer:
                 compute_type = self._config.recognition_compute_type,
             )
         except Exception as error:
+            spent_seconds = time.monotonic() - started
             logger.warning(f"[speech] модель не загрузилась: {type(error).__name__}: {error}")
-            return None, f"модель {self._config.recognition_model} не загрузилась"
+            return None, f"модель {self._config.recognition_model} не загрузилась", spent_seconds
 
-        return self._model, ""
+        return self._model, "", time.monotonic() - started
 
     def _cache_key(self, audio_path: Path) -> str:
         """

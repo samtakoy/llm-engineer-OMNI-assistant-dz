@@ -17,11 +17,14 @@ class TranscriptOutcome:
         text: расшифровка, пустая строка при неудаче и при тишине в записи.
         error: краткая причина неудачи, пустая строка если всё получилось.
         from_cache: расшифровка взята из кеша, а не посчитана заново.
+        load_seconds: сколько заняла загрузка модели. Ноль, если модель уже
+            была загружена или не понадобилась.
     """
 
     text: str
     error: str
     from_cache: bool
+    load_seconds: float
 
 
 @dataclass(frozen = True)

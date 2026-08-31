@@ -34,6 +34,19 @@ class Stopwatch:
         finally:
             self._stages.append((name, time.monotonic() - started))
 
+    def add(self, name: str, seconds: float) -> None:
+        """
+        Кладёт в копилку готовый замер.
+
+        Аргументы:
+            name: имя этапа для таблицы.
+            seconds: длительность этапа.
+
+        Возвращает:
+            Ничего.
+        """
+        self._stages.append((name, seconds))
+
     def stages(self) -> list[tuple[str, float]]:
         """
         Отдаёт замеры в порядке прохождения.
