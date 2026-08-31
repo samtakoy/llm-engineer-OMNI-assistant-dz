@@ -27,7 +27,7 @@ _STRENGTH_SCALE = {
 # слабее. Ручка подстройки эффекта на слух.
 _GROWL_DEPTH = 0.33
 _CARTOON_DEPTH = 0.5
-_GHOST_DEPTH = 0.4
+_GHOST_DEPTH = 0.3
 _GIANT_DEPTH = 0.2
 
 # Частота дрожания голоса в рычании, герцы.

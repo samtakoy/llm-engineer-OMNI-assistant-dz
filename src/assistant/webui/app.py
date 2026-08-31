@@ -291,7 +291,7 @@ def build_app() -> gr.Blocks:
                     speech_input = gr.Checkbox(label = "Озвучивать текст", value = True)
                     markup_input = gr.Checkbox(label = "Размечать текст перед озвучкой", value = True)
 
-                run_button = gr.Button(value = "Провести экскурсию", variant = "primary")
+                run_button = gr.Button(value = "Собрать ответ", variant = "primary")
 
             with gr.Column():
                 status_output = gr.Markdown(label = "Состояние")
