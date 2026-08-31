@@ -62,6 +62,9 @@ _MAX_LEVEL_GAIN = 8.0
 # Уровень, ниже которого часть считается тишиной и не выравнивается.
 _SILENCE_LEVEL = 1e-6
 
+# Сколько раз чанк делится пополам, прежде чем признаётся неозвучиваемым.
+_MAX_HALVING_DEPTH = 1
+
 
 class SpeechSynthesizer:
     """
@@ -202,11 +205,11 @@ class SpeechSynthesizer:
 
         rendered: list[Any] = []
         for chunk in split_into_chunks(text = spoken_text, budget = self._config.max_symbols):
-            chunk_audio, synthesis_error = self._synthesized_audio(
+            chunk_audio, synthesis_error = self._rendered_chunk(
                 model = model,
-                plain_text = drop_markup(text = chunk),
-                marked_text = chunk,
+                chunk = chunk,
                 settings = settings,
+                depth = 0,
             )
             if chunk_audio is None:
                 return None, synthesis_error
@@ -228,6 +231,63 @@ class SpeechSynthesizer:
             return None, effect_error
 
         return audio, ""
+
+    def _rendered_chunk(
+        self,
+        model: Any,
+        chunk: str,
+        settings: VoiceSettings,
+        depth: int,
+    ) -> tuple[Any | None, str]:
+        """
+        Озвучивает чанк, деля его пополам, пока модель не справится.
+
+        Аргументы:
+            model: загруженная модель silero.
+            chunk: текст чанка с разметкой или без неё.
+            settings: голос, темп, высота и звуковой эффект.
+            depth: сколько делений уже сделано.
+
+        Возвращает:
+            Пару «отсчёты звука, причина неудачи». При неудаче отсчёты None.
+        """
+        import torch
+
+        chunk_audio, synthesis_error = self._synthesized_audio(
+            model = model,
+            plain_text = drop_markup(text = chunk),
+            marked_text = chunk,
+            settings = settings,
+        )
+        if chunk_audio is not None:
+            return chunk_audio, ""
+
+        if depth >= _MAX_HALVING_DEPTH:
+            return None, synthesis_error
+
+        halves = split_into_chunks(
+            text = chunk,
+            budget = len(drop_markup(text = chunk)) // 2,
+        )
+        if len(halves) < 2:
+            return None, synthesis_error
+
+        logger.info(f"[speaking] чанк делится на {len(halves)}: {synthesis_error}")
+
+        rendered: list[Any] = []
+        for half in halves:
+            half_audio, half_error = self._rendered_chunk(
+                model = model,
+                chunk = half,
+                settings = settings,
+                depth = depth + 1,
+            )
+            if half_audio is None:
+                return None, half_error
+
+            rendered.append(half_audio)
+
+        return torch.cat(rendered), ""
 
     def _silence(self, like: Any) -> Any:
         """
