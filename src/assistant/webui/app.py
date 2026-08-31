@@ -32,7 +32,10 @@ from .render import (
 AUDIO_PLAYER_COUNT = 12
 
 
-def resolve_narrator(image_path: str | None, narrator_style: str) -> tuple[Path | None, str | None]:
+def resolve_narrator(
+    image_path: str | None,
+    narrator_style: str | None,
+) -> tuple[Path | None, str | None]:
     """
     Выбирает источник рассказчика: фразу либо фотографию.
 
@@ -40,12 +43,13 @@ def resolve_narrator(image_path: str | None, narrator_style: str) -> tuple[Path 
 
     Аргументы:
         image_path: файл с фотографией персонажа; None - фотографии нет.
-        narrator_style: фраза про рассказчика, возможно пустая.
+        narrator_style: фраза про рассказчика; None либо пустая строка - фразы
+            нет: нетронутое поле ввода приходит из gradio значением None.
 
     Возвращает:
         Пару «фотография, фраза». Незанятый источник равен None.
     """
-    if narrator_style.strip():
+    if narrator_style and narrator_style.strip():
         return None, narrator_style.strip()
 
     if image_path:
@@ -55,7 +59,7 @@ def resolve_narrator(image_path: str | None, narrator_style: str) -> tuple[Path 
 
 
 def resolve_question_source(
-    question_text: str,
+    question_text: str | None,
     question_audio_path: str | None,
 ) -> tuple[str | None, Path | None]:
     """
@@ -64,13 +68,14 @@ def resolve_question_source(
     Непустой текст перебивает запись.
 
     Аргументы:
-        question_text: вопрос текстом, возможно пустой.
+        question_text: вопрос текстом; None либо пустая строка - текста нет:
+            нетронутое поле ввода приходит из gradio значением None.
         question_audio_path: файл с записью вопроса; None - записи нет.
 
     Возвращает:
         Пару «текст, файл с записью». Незанятый источник равен None.
     """
-    if question_text.strip():
+    if question_text and question_text.strip():
         return question_text.strip(), None
 
     if question_audio_path:
@@ -181,9 +186,9 @@ def blank_fields(status: str) -> tuple:
 
 def run_from_ui(
     image_path: str | None,
-    question_text: str,
+    question_text: str | None,
     question_audio_path: str | None,
-    narrator_style: str,
+    narrator_style: str | None,
     persona_mode_value: str,
     is_reuse_facts: bool,
     is_speech_on: bool,
@@ -194,9 +199,9 @@ def run_from_ui(
 
     Аргументы:
         image_path: файл с фотографией персонажа; None - фотографии нет.
-        question_text: вопрос текстом, возможно пустой.
+        question_text: вопрос текстом; None - поле не тронуто.
         question_audio_path: файл с записью вопроса; None - записи нет.
-        narrator_style: фраза про рассказчика, возможно пустая.
+        narrator_style: фраза про рассказчика; None - поле не тронуто.
         persona_mode_value: способ сборки рассказчика по фотографии.
         is_reuse_facts: взять факты свежего записанного прогона, сбор пропустить.
         is_speech_on: озвучивать готовый текст.
