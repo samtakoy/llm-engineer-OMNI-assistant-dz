@@ -7,9 +7,9 @@
 
 from dataclasses import dataclass
 
-from assistant.graph.checkpoints import open_checkpointer
 from assistant.graph.graph import build_graph
 from assistant.graph.state import ResearchNotes
+from assistant.graph_runs.checkpoints import open_checkpointer
 from assistant.variables import CHECKPOINT_DIR
 
 

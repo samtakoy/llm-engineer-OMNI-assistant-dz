@@ -15,11 +15,9 @@ from pathlib import Path
 from langchain_core.callbacks import BaseCallbackHandler
 from langchain_openai import ChatOpenAI
 
-from assistant.graph import (
-    Answer,
-    ResearchNotes,
+from assistant.graph import Answer, ResearchNotes, describe_nodes
+from assistant.graph_runs import (
     ResearchStep,
-    describe_nodes,
     find_resume_point,
     new_run_id,
     resume_research,

@@ -11,7 +11,7 @@ from pathlib import Path
 
 import gradio as gr
 
-from ..graph import latest_run_id
+from ..graph_runs import latest_run_id
 from ..observability import setup_console_output
 from ..omni import OmniOutcome, empty_outcome, run_omni_assistant_staged
 from ..persona import PersonaMode

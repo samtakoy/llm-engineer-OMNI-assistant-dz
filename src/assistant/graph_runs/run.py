@@ -17,11 +17,11 @@ from langchain_core.messages import HumanMessage, ToolMessage
 from langgraph.graph.state import CompiledStateGraph
 
 from assistant.graph.budget import MAX_TOOL_CALLS_PER_RUN
-from assistant.graph.checkpoints import open_checkpointer
 from assistant.graph.graph import build_graph
-from assistant.graph.history import ResumePoint, find_resume_point
-from assistant.graph.logs import log_checkpoints_off, log_resume, log_run_id
 from assistant.graph.state import Answer, ResearchNotes, ResearchState
+from assistant.graph_runs.checkpoints import open_checkpointer
+from assistant.graph_runs.history import ResumePoint, find_resume_point
+from assistant.graph_runs.logs import log_checkpoints_off, log_resume, log_run_id
 from assistant.variables import CHECKPOINT_DIR
 
 # Узлы, с которых можно продолжить прогон.

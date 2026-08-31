@@ -4,7 +4,8 @@
 Модуль не знает про gradio: наружу уходят готовые строки.
 """
 
-from ..graph import Answer, ResearchNotes, ResearchStep
+from ..graph import Answer, ResearchNotes
+from ..graph_runs import ResearchStep
 from ..persona import Persona
 from ..timing import Stopwatch
 

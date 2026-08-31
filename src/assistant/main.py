@@ -7,14 +7,8 @@ import argparse
 import sys
 from pathlib import Path
 
-from assistant.graph import (
-    RESUMABLE_NODES,
-    Answer,
-    ResearchNotes,
-    describe_nodes,
-    latest_run_id,
-    list_runs,
-)
+from assistant.graph import Answer, ResearchNotes, describe_nodes
+from assistant.graph_runs import RESUMABLE_NODES, latest_run_id, list_runs
 from assistant.observability import setup_console_output
 from assistant.omni import (
     RECORD_UNTIL_ENTER,
